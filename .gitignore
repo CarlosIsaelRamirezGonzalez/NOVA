@@ -1,0 +1,114 @@
+# ==========================
+# Python
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribución / empaquetado
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ==========================
+# Entornos virtuales
+# ==========================
+.venv/
+venv/
+ENV/
+env/
+
+# ==========================
+# Variables de entorno
+# ==========================
+.env
+.env.*
+!.env.example
+
+# ==========================
+# Logs
+# ==========================
+*.log
+logs/
+
+# ==========================
+# Cachés
+# ==========================
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.cache/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+
+# ==========================
+# Jupyter
+# ==========================
+.ipynb_checkpoints/
+
+# ==========================
+# IDEs
+# ==========================
+.vscode/
+.idea/
+
+# ==========================
+# Sistema operativo
+# ==========================
+.DS_Store
+Thumbs.db
+
+# ==========================
+# Archivos temporales
+# ==========================
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# ==========================
+# Archivos compilados
+# ==========================
+*.exe
+*.dll
+*.o
+*.obj
+
+# ==========================
+# Archivos de audio temporales
+# ==========================
+*.wav
+*.mp3
+*.ogg
+
+# ==========================
+# Archivos locales
+# ==========================
+*.sqlite3
+*.db
+
+# ==========================
+# Secrets
+# ==========================
+secrets.json
+credentials.json
+token.json
