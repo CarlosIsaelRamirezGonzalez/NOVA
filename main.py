@@ -37,7 +37,7 @@ mensajes = [system_prompt]
 
 print("--- ¡Iniciando Chatbot de Voz Completo con Grok! ---")
 print("Escribe 'salir' para terminar.\n")
-
+    
 while True:
     texto_usuario = input("\nTú: ")
     

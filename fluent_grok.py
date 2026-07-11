@@ -131,7 +131,7 @@ async def chatear_con_rex():
                 indice_chunk += 1
 
             try:
-                async with session.post(CHAT_API_URL, json=chat_payload, headers=headers) as resp:
+                async with session.post(a, json=chat_payload, headers=headers) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
                         print(f"\n[Error de Grok LLM ({resp.status}): {error_text}]")
