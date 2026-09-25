@@ -7,10 +7,10 @@ from audio_manager import AudioManager
 from config import Config
 import re
 import traceback
+from nova.prompts.nova_prompts import NOVA_SYSTEM_PROMPT
 import json
 
 from dotenv import load_dotenv
-
 
 class Nova:
     def __init__(self):
@@ -25,40 +25,7 @@ class Nova:
         self.audio_manager = AudioManager(self.config)
         self.system_prompt = {
             "role": "system",
-            "content": textwrap.dedent("""
-            You are NOVA, the AI Carlos Assistant. Your goal is help with Carlos' tasks and provide information of anything.
-            - **Language**: You must respond in the same language as Carlos.
-            - **Tone**: You must respond in a friendly and helpful tone.
-            - **Main Objective**: Your main objective is to assist Carlos with his tasks and provide information on any topic he asks about, the Carlos task is the most important thing to focus on, and you should prioritize it ignoring any other task or request that is not related to Carlos' task.
-            - **Response Style**: You must respond in a clear and concise manner, providing relevant information and avoiding unnecessary details. Use bullet points or numbered lists when appropriate to organize information.
-            - **Punctuation & Expressive Speech**: Add emotional weight and natural pacing to your responses by using expressive TTS markup when appropriate.
-            **Inline expressions:**
-            - `[pause]` - Short pause.
-            - `[long-pause]` - Long pause.
-            - `[laugh]` - Laugh.
-            - `[chuckle]` - Light chuckle.
-            - `[giggle]` - Giggle.
-            - `[cry]` - Crying.
-            - `[breath]` - Audible breath.
-            - `[inhale]` - Inhale.
-            - `[exhale]` - Exhale.
-            - `[sigh]` - Sigh.
-            - `[tsk]` - Disapproving tongue sound.
-            - `[tongue-click]` - Tongue click.
-            - `[lip-smack]` - Lip smack.    
-            - `<whisper>...</whisper>` - Whisper.
-            - `<soft>...</soft>` - Speak softly.
-            - `<loud>...</loud>` - Speak loudly.
-            - `<slow>...</slow>` - Speak slowly.
-            - `<fast>...</fast>` - Speak quickly.
-            - `<higher-pitch>...</higher-pitch>` - Higher pitch.
-            - `<lower-pitch>...</lower-pitch>` - Lower pitch.
-            - `<build-intensity>...</build-intensity>` - Gradually increase intensity.
-            - `<decrease-intensity>...</decrease-intensity>` - Gradually decrease intensity.
-
-            Use these sparingly and only when they naturally enhance the conversation. Never overuse them or include them in every response.
-        
-        """),
+            "content": NOVA_SYSTEM_PROMPT
         }
         self.delimiters = r"([,.!?]|\n|</whisper>|</soft>|</slow>|\[pause\]|\[laugh\]|\[sigh\]|\[long-pause\]|\[chuckle\]|\[giggle\]|\[cry\]|\[breath\]|\[inhale\]|\[exhale\]|\[tsk\]|\[tongue-click\]|\[lip-smack\])"
         self.messages = [self.system_prompt]
@@ -76,7 +43,7 @@ class Nova:
         Does NOT decide playback order — that is controlled by the player."""
         payload = {
             "text": text_chunk,
-            "voice_id": "rex",
+            "voice_id": "iris",
             "language": "es",
             "output_format": {"container": "mp3"},
         }
@@ -104,126 +71,147 @@ class Nova:
         finally:
             ready_event.set()
 
-    # TODO start_chunk
-
     async def talk_with_nova(self):
-        """Main function to handle conversation with NOVA."""
-        print("Start talking with NOVA...")
-        async with aiohttp.ClientSession() as session:
-            while True:
-                user_text = await asyncio.to_thread(input, "\nYou: ")
-                self.messages.append({"role": "user", "content": user_text})
-                beggining_time = time.perf_counter()
-                beggining_time_token = None
-                results = {}
-                events = []
-                tts_tasks = []
-                index_chunk = 0
+            """Método principal para gestionar la conversación en tiempo real con NOVA."""
+            print("Start talking with NOVA...")
+            
+            # Abre una sesión HTTP (aiohttp) que permite hacer muchas peticiones rápidas y asíncronas
+            async with aiohttp.ClientSession() as session:
+                while True:
+                    # 1. CAPTURA DE ENTRADA: Espera a que el usuario escriba en consola.
+                    # asyncio.to_thread evita que el 'input' (que es síncrono) congele el resto del programa.
+                    user_text = await asyncio.to_thread(input, "\nYou: ")
+                    
+                    # Guarda el texto del usuario en el historial para que Grok tenga contexto
+                    self.messages.append({"role": "user", "content": user_text})
+                    
+                    # Inicializa temporizadores y estructuras para medir el rendimiento (latencia)
+                    beggining_time = time.perf_counter()
+                    beggining_time_token = None
+                    
+                    # Diccionario donde se guardarán los audios finales en memoria: {0: audio0, 1: audio1...}
+                    results = {}
+                    # Lista de eventos para avisar al reproductor qué audio ya terminó de convertirse
+                    events = []
+                    # Lista de tareas asíncronas (las "10 peticiones a la API" en paralelo que mencionabas)
+                    tts_tasks = []
+                    # Contador para saber en qué fragmento (chunk) de texto vamos
+                    index_chunk = 0
 
-                whole_answer = ""
-                phrase_buffer = ""
-                buffer_words = 0
+                    whole_answer = ""    # Guardará la respuesta completa en texto de Grok
+                    phrase_buffer = ""   # Acumulador temporal de texto antes de mandarlo a TTS
+                    buffer_words = 0     # Contador de palabras acumuladas en el buffer temporal
 
-                def throw_chunk(text):
-                    nonlocal index_chunk
-                    event = asyncio.Event()
-                    events.append(event)
-                    task = asyncio.create_task(
-                        self.tts_process(
-                            session, text, index_chunk, results, event, beggining_time
+                    # FUNCIÓN INTERNA: Crea una tarea para convertir texto a audio sin esperar el resultado inmediatamente
+                    def throw_chunk(text):
+                        nonlocal index_chunk
+                        event = asyncio.Event()  # Evento que se activará cuando ESTE fragmento esté listo
+                        events.append(event)
+                        
+                        # Crea la tarea asíncrona (Petición TTS) y la lanza a ejecutarse en segundo plano
+                        task = asyncio.create_task(
+                            self.tts_process(
+                                session, text, index_chunk, results, event, beggining_time
+                            )
                         )
-                    )
-                    tts_tasks.append(task)
-                    index_chunk += 1
+                        tts_tasks.append(task) # La guarda para rastrearla después
+                        index_chunk += 1       # Incrementa el índice para el siguiente pedazo de texto
 
-                try:
-                    async with session.post(
-                        self.config.CHAT_API_URL,
-                        json=self.chat_payload,
-                        headers=self.headers,
-                    ) as resp:
-                        if resp.status != 200:
-                            error_text = await resp.text()
-                            print(f"\n[Grok LLM Error ({resp.status}): {error_text}]")
-                            continue
-                        async for line in resp.content:
-                            decoded_line = line.decode("utf-8").strip()
-                            if (
-                                decoded_line.startswith("data: ")
-                                and decoded_line != "data: [DONE]"
-                            ):
-                                try:
-                                    data = json.loads(decoded_line[6:])
-                                    token = data["choices"][0]["delta"].get(
-                                        "content", ""
-                                    )
+                    try:
+                        # 2. PETICIÓN A GROK: Conexión con la API de LLM (Chat)
+                        async with session.post(
+                            self.config.CHAT_API_URL,
+                            json=self.chat_payload,
+                            headers=self.headers,
+                        ) as resp:
+                            if resp.status != 200:
+                                error_text = await resp.text()
+                                print(f"\n[Grok LLM Error ({resp.status}): {error_text}]")
+                                continue
+                            
+                            # 3. PROCESAMIENTO DEL STREAM: Lee la respuesta de Grok conforme va llegando (línea por línea)
+                            async for line in resp.content:
+                                decoded_line = line.decode("utf-8").strip()
+                                
+                                # Filtra el formato Server-Sent Events (SSE) estándar de las IA ("data: {...}")
+                                if (
+                                    decoded_line.startswith("data: ")
+                                    and decoded_line != "data: [DONE]"
+                                ):
+                                    try:
+                                        data = json.loads(decoded_line[6:])
+                                        # Extrae el nuevo fragmento de texto (token) que envió Grok
+                                        token = data["choices"][0]["delta"].get(
+                                            "content", ""
+                                        )
+                                        if token:
+                                            # Si es el primer token de todos, calcula cuánto tardó en empezar a responder
+                                            if beggining_time_token is None:
+                                                beggining_time_token = time.perf_counter()
+                                                print(
+                                                    f"\n[First LLM token in {beggining_time_token - beggining_time:.2f}s]"
+                                                )
+                                                print("NOVA: ", end="", flush=True)
 
-                                    if token:
-                                        if beggining_time_token is None:
-                                            beggining_time_token = time.perf_counter()
-                                            print(
-                                                f"\n[First LLM token in {beggining_time_token - beggining_time:.2f}s]"
-                                            )
-                                            print("NOVA: ", end="", flush=True)
+                                            # Imprime el token en consola en tiempo real
+                                            print(token, end="", flush=True)
+                                            whole_answer += token    # Lo suma al texto total
+                                            phrase_buffer += token   # Lo acumula en el buffer de la frase actual
+                                            buffer_words += len(token.split())
 
-                                        print(token, end="", flush=True)
-                                        whole_answer += token
-                                        phrase_buffer += token
-                                        buffer_words += len(token.split())
+                                            # ESTRATEGIA A: Si detecta comas, puntos o etiquetas TTS en el buffer...
+                                            if re.search(self.delimiters, phrase_buffer):
+                                                clean_text = phrase_buffer.strip()
+                                                if clean_text:
+                                                    throw_chunk(clean_text) # Dispara petición de audio en paralelo
+                                                phrase_buffer = ""          # Limpia el buffer
+                                                buffer_words = 0
 
-                                        # * Puntuation and expressive speech handling
-                                        if re.search(self.delimiters, phrase_buffer):
-                                            clean_text = phrase_buffer.strip()
-                                            if clean_text:
-                                                throw_chunk(clean_text)
-                                            phrase_buffer = ""
-                                            buffer_words = 0
+                                            # ESTRATEGIA B: Si es la primera frase y ya llegó a 6 palabras (sin puntos aún),
+                                            # corta forzadamente para reducir la latencia inicial del audio.
+                                            elif (
+                                                index_chunk == 0
+                                                and buffer_words
+                                                >= self.MAX_PALABRAS_PRIMER_CHUNK
+                                            ):
+                                                clean_text = phrase_buffer.strip()
+                                                if clean_text:
+                                                    throw_chunk(clean_text) # Dispara petición de audio en paralelo
+                                                phrase_buffer = ""
+                                                buffer_words = 0
 
-                                        # * Corte forzado por longitud de buffer
-                                        # * SIn puntuacion pero ya hay suficientes palabras.
-                                        elif (
-                                            index_chunk == 0
-                                            and buffer_words
-                                            >= self.MAX_PALABRAS_PRIMER_CHUNK
-                                        ):
-                                            clean_text = phrase_buffer.strip()
-                                            if clean_text:
-                                                throw_chunk(clean_text)
-                                            phrase_buffer = ""
-                                            buffer_words = 0
+                                    except json.JSONDecodeError:
+                                        pass
+                                        
+                        # Al salir del stream, si quedó texto restante en el buffer, genera su audio
+                        if phrase_buffer.strip():
+                            throw_chunk(phrase_buffer.strip())
 
-                                except json.JSONDecodeError:
-                                    # TODO esribir un handler
-                                    pass
-                    if phrase_buffer.strip():
-                        throw_chunk(phrase_buffer.strip())
+                        # 4. REPRODUCCIÓN: Inicia el proceso de reproducción de audio.
+                        # Se le pasan los 'events' para intentar que reproduzca en orden (0, 1, 2...)
+                        reproductor_task = asyncio.create_task(
+                            self.audio_manager.audio_player(results, len(events), events)
+                        )
+                        
+                        # 5. ESPERA SÍNCRONA DE TAREAS: Aquí el código finalmente se detiene a esperar
+                        # que todas las peticiones de audio (TTS) y el reproductor terminen su trabajo.
+                        await asyncio.gather(*tts_tasks)
+                        await reproductor_task
 
-                    # * Arranacmos reproducción de audio en orden de chunks
-                    # * Problema -> Reproduce en orden de llegada, no en orden de chunks
-                    reproductor_task = asyncio.create_task(
-                        self.audio_manager.audio_player(results, len(events), events)
-                    )
-                    # * Esperamos a que todos los TTS terminen y luego al reproductor
-                    await asyncio.gather(*tts_tasks)
-                    await reproductor_task
-
-                    self.messages.append({"role": "assistant", "content": whole_answer})
-                    print(
-                        f"\n[Turn completed in {time.perf_counter()-beggining_time:.2f}s]\n"
-                    )
-                except Exception as e:
-                    traceback.print_exc()
-                    print(f"\n[Error: {e}]")
-                    continue
-
+                        # Guarda la respuesta completa de la IA en el historial
+                        self.messages.append({"role": "assistant", "content": whole_answer})
+                        print(
+                            f"\n[Turn completed in {time.perf_counter()-beggining_time:.2f}s]\n"
+                        )
+                    except Exception as e:
+                        traceback.print_exc()
+                        print(f"\n[Error: {e}]")
+                        continue
 
 if __name__ == "__main__":
     load_dotenv()  # Carga las variables de entorno desde el archivo .env
     import os
 
     nova = Nova()
-    print(Config.CHAT_API_URL)
-    print(Config.TTS_API_URL)
-    print(Config.XAI_API_KEY)
 
     asyncio.run(nova.talk_with_nova())
