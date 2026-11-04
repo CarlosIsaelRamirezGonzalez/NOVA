@@ -1,0 +1,34 @@
+/* Estilos globales de la interfaz de Nova. */
+@import "@fontsource/pixelify-sans/400.css";
+@import "tailwindcss";
+
+/* Colores y fuente de la interfaz, tomados de la paleta del boceto. */
+@theme {
+  --font-pixel: "Pixelify Sans", ui-monospace, monospace;
+  --color-night: #060820;
+  --color-panel: #12143a;
+  --color-line: #33317a;
+  --color-cream: #f1f1ff;
+  --color-muted: #aaaee0;
+  --color-glow: #8ba0ff;
+  --color-alert: #ff9d8a;
+}
+
+/* Pide controles oscuros al navegador, como la barra de desplazamiento. */
+:root {
+  color-scheme: dark;
+}
+
+/* La aplicación ocupa toda la ventana. */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-night);
+  color: var(--color-cream);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+

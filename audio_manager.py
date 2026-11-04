@@ -1,26 +1,32 @@
-import pygame
+"""Reproducción local de audio para la versión de consola de Nova."""
+
 import asyncio
+import io
+
+import pygame
+
+POLL_SECONDS = 0.03
 
 
 class AudioManager:
-    def __init__(self, config):
-        self.config = config
+    """Reproduce fragmentos de audio en los altavoces, sin escribir a disco."""
 
-    async def audio_player(self, resultados, total_chunks, eventos):
-        """Reproduce los fragmentos EN ORDEN, esperando a que cada índice esté listo
-        aunque los TTS hayan terminado en otro orden. Reproduce en memoria (sin disco).
-        """
+    def __init__(self) -> None:
+        """Inicializa el mezclador de audio de pygame."""
         pygame.mixer.init()
 
-        for i in range(total_chunks):
-            await eventos[i].wait()
-            audio_io = resultados.get(i)
-            if audio_io is None:
-                continue
-            try:
-                sonido = pygame.mixer.Sound(audio_io)
-                canal = sonido.play()
-                while canal.get_busy():
-                    await asyncio.sleep(0.03)
-            except Exception as e:
-                print(f"\n[Error de reproducción chunk {i}: {e}]")
+    async def play(self, audio: bytes) -> None:
+        """Reproduce un fragmento y espera a que termine.
+
+        Esperar aquí es lo que mantiene las frases en orden, una tras otra.
+
+        Args:
+            audio: Contenido del archivo de audio.
+        """
+        try:
+            channel = pygame.mixer.Sound(io.BytesIO(audio)).play()
+            while channel.get_busy():
+                await asyncio.sleep(POLL_SECONDS)
+        except pygame.error as error:
+            # Un fragmento dañado no debe interrumpir el resto de la respuesta.
+            print(f"[Playback error: {error}]")
