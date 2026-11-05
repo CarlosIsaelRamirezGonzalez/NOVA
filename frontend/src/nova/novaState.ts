@@ -48,6 +48,7 @@ export type NovaInput = {
   pointer: { x: number; y: number } | null // en coordenadas del lienzo
   lookAtInput: boolean
   reducedMotion: boolean
+  grab: { held: boolean; vx: number; vy: number } // si la están cargando y a qué velocidad, en px/s
 }
 
 /** Estado completo de la animación; se conserva entre un cuadro y otro. */
@@ -88,6 +89,10 @@ export type NovaState = {
   eyeTwitch: number // multiplica la altura de los ojos; menos de 1 es un tic
   huffTimer: number // segundos para el siguiente resoplido de frustración
   typing: number // qué tanto apareció la compu, de 0 a 1
+  grabbed: number // qué tan cargada va, de 0 a 1
+  grabVx: number // velocidad horizontal al arrastrarla, suavizada
+  grabVy: number // velocidad vertical al arrastrarla, suavizada
+  wasHeld: boolean // si en el paso anterior la estaban cargando
   keying: number // qué tan rápido teclea, de 0 a 1; se detiene mientras cuenta lo que encontró
   reachLeft: number // cuánto sube la mano izquierda al teclear, en píxeles
   reachRight: number // cuánto sube la mano derecha al teclear, en píxeles
@@ -136,6 +141,10 @@ export function createNovaState(): NovaState {
     headSink: 0,
     eyeTwitch: 1,
     huffTimer: 0,
+    grabbed: 0,
+    grabVx: 0,
+    grabVy: 0,
+    wasHeld: false,
     typing: 0,
     keying: 0,
     reachLeft: 0,
@@ -393,6 +402,19 @@ export function poke(state: NovaState) {
  */
 function targetPose(input: NovaInput): Pose {
   const base = blendPoses(input.blend)
+
+  // La cargan: alza los brazos como si colgara, y las llamas se agitan.
+  if (input.grab.held) {
+    return {
+      ...base,
+      armLeft: 2.5,
+      armRight: 2.5,
+      hairWild: Math.max(base.hairWild, 1.3),
+      hairSpeed: base.hairSpeed * 1.5,
+      bobHeight: 0,
+      lift: base.lift - 5,
+    }
+  }
   if (input.activity === 'thinking') {
     return {
       ...base,
@@ -470,6 +492,17 @@ export function stepNova(state: NovaState, input: NovaInput) {
 
   const acting = performEmotions(state, dt, motion)
 
+  // Al cargarla, el cuerpo se queda atrás del movimiento, y al soltarla cae con un rebote.
+  const held = input.grab.held
+  state.grabbed = approach(state.grabbed, held ? 1 : 0, held ? 14 : 7, dt)
+  state.grabVx = approach(state.grabVx, held ? input.grab.vx : 0, 10, dt)
+  state.grabVy = approach(state.grabVy, held ? input.grab.vy : 0, 10, dt)
+  if (state.wasHeld && !held && !input.reducedMotion) poke(state)
+  state.wasHeld = held
+  state.actX += clamp(-state.grabVx * 0.012, -13, 13) * motion
+  state.actY += clamp(-state.grabVy * 0.01, -9, 9) * motion
+  state.bodyStretch += state.grabbed * (0.13 + Math.abs(state.grabVy) * 0.00012) * motion
+
   // La compu aparece poco a poco, y cada mano teclea a su propio ritmo para no verse mecánica.
   const searching = activity === 'searching'
   const reading = activity === 'reading'
@@ -479,6 +512,9 @@ export function stepNova(state: NovaState, input: NovaInput) {
   state.reachRight = Math.max(0, Math.sin(state.time * 23 + 1.7)) * 5 * state.keying * motion
 
   // Brazos con resorte: se pasan un poco y vuelven, lo que les quita rigidez.
+  // Mientras la cargan patalea con los brazos, más cuanto más rápido la muevan.
+  const speed = Math.hypot(state.grabVx, state.grabVy)
+  const flail = Math.sin(state.time * 15) * state.grabbed * (0.12 + Math.min(0.32, speed * 0.0005)) * motion
   const gesture = activity === 'speaking' ? Math.sin(state.time * 5.5) * 0.28 * (0.3 + state.level) : 0
   const stiffness = 62
   const damping = 9
@@ -489,8 +525,8 @@ export function stepNova(state: NovaState, input: NovaInput) {
   // La alegría agita los brazos en proporción a lo que pesa dentro de la mezcla.
   const happiness = input.blend.find((item) => item.name === 'happy')?.intensity ?? 0
   const happyWave = Math.sin(state.time * 8) * 0.28 * happiness
-  ;[state.armLeft, state.armLeftVelocity] = stepArm(state.armLeft, state.armLeftVelocity, target.armLeft + gesture + happyWave + acting.armLeft)
-  ;[state.armRight, state.armRightVelocity] = stepArm(state.armRight, state.armRightVelocity, target.armRight - gesture - happyWave + acting.armRight)
+  ;[state.armLeft, state.armLeftVelocity] = stepArm(state.armLeft, state.armLeftVelocity, target.armLeft + gesture + happyWave + acting.armLeft + flail)
+  ;[state.armRight, state.armRightVelocity] = stepArm(state.armRight, state.armRightVelocity, target.armRight - gesture - happyWave + acting.armRight - flail)
 
   // Hacia dónde mira y se desplaza.
   const center = CANVAS_SIZE / 2
@@ -511,7 +547,11 @@ export function stepNova(state: NovaState, input: NovaInput) {
   let gazeX = state.wanderX
   let gazeY = state.wanderY
   let driftGoal = 0
-  if (reading) {
+  if (held) {
+    // Mira hacia donde la llevan.
+    gazeX = clamp(state.grabVx * 0.004, -1, 1)
+    gazeY = clamp(state.grabVy * 0.004, -1, 1)
+  } else if (reading) {
     // Te cuenta lo que encontró: te mira y de vez en cuando vuelve a revisar la pantalla.
     const checksScreen = Math.sin(state.time * 0.9) > 0.55
     gazeX = checksScreen ? Math.sin(state.time * 1.6) * 0.55 : 0
@@ -541,7 +581,10 @@ export function stepNova(state: NovaState, input: NovaInput) {
   state.x += state.xVelocity * dt
   // La cola reacciona tarde al movimiento y a la flotación.
   const travel = dt > 0 ? (state.x - previousX) / dt : 0
-  state.tailSway = approach(state.tailSway, -travel * 0.45 + Math.sin(state.phase * 0.9) * 1.5 * motion, 5, dt)
+  // La cola también se queda atrás al arrastrarla.
+  const tailDrag = clamp(-state.grabVx * 0.012, -9, 9) * state.grabbed * motion
+  const tailGoal = -travel * 0.45 + Math.sin(state.phase * 0.9) * 1.5 * motion + tailDrag
+  state.tailSway = approach(state.tailSway, tailGoal, state.grabbed > 0.5 ? 12 : 5, dt)
 
   // Calcula la altura: flotación, emoción, voz y el brinco del clic. El enojo añade temblor.
   const bob = Math.sin(state.phase * Math.PI * 0.6) * state.pose.bobHeight * motion
@@ -589,6 +632,20 @@ export function stepNova(state: NovaState, input: NovaInput) {
   if (searching && state.typing > 0.8 && !input.reducedMotion && Math.random() < dt * 11) {
     const side = Math.random() < 0.5 ? -1 : 1
     emit(state, { kind: 'dot', x: headX + state.actX + side * random(3, 13), y: headY + 33, vx: side * random(2, 10), vy: random(-30, -14), life: 0.45, color: hex('#7FE3FF') })
+  }
+
+  // Deja una estela de chispas detrás de ella al moverla.
+  if (state.grabbed > 0.5 && speed > 120 && !input.reducedMotion && Math.random() < dt * 30) {
+    const direction = Math.max(speed, 1)
+    emit(state, {
+      kind: 'star',
+      x: headX + random(-14, 14),
+      y: headY + random(-14, 26),
+      vx: (-state.grabVx / direction) * random(24, 60),
+      vy: (-state.grabVy / direction) * random(24, 60),
+      life: random(0.3, 0.6),
+      color: hex('#BFE6FF'),
+    })
   }
 
   // La nube de la tristeza deja caer lluvia.

@@ -2,6 +2,11 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.9.0 · 5 de noviembre de 2026 · Cargar a Nova
+- Se puede tomar a Nova y moverla por la pantalla; recuerda dónde quedó.
+- Animación al cargarla: alza los brazos, el cuerpo se queda atrás, deja chispas y el portal se apaga.
+- Al soltarla da un brinco y el portal vuelve.
+
 ## v0.8.0 · 5 de noviembre de 2026 · Conversación fluida
 - Se llama a Nova diciendo solo "Nova"; "Oye Nova" también funciona.
 - Después de cada respuesta sigue escuchando 20 segundos, sin tener que volver a llamarla.

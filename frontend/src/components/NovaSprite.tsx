@@ -13,6 +13,21 @@ const SILENCE = 0.012
 const SENSITIVITY = 5.5
 const POKE_SECONDS = 0.9
 const POKE_BLEND: EmotionBlend = [{ name: 'surprised', intensity: 1 }]
+// Al cargarla se sorprende y le divierte; se le pasa al soltarla.
+const GRAB_BLEND: EmotionBlend = [
+  { name: 'surprised', intensity: 0.6 },
+  { name: 'happy', intensity: 0.7 },
+]
+// Movimiento mínimo para que cuente como arrastre y no como un clic.
+const DRAG_THRESHOLD_PX = 4
+
+/** Funciones de la app de escritorio para mover la ventana; en el navegador no existen. */
+type DragBridge = {
+  startDrag: (screenX: number, screenY: number) => void
+  moveDrag: (screenX: number, screenY: number) => void
+  endDrag: () => void
+}
+const dragBridge = (window as unknown as { novaDesktop?: DragBridge }).novaDesktop
 
 /** Propiedades de {@link NovaSprite}. */
 type Props = {
@@ -93,13 +108,59 @@ export function NovaSprite({
         y: ((event.clientY - rect.top) / rect.height) * CANVAS_SIZE,
       }
     }
-    // Al hacerle clic, se sorprende durante un momento.
-    const onPointerDown = () => {
-      pokedUntil = performance.now() + POKE_SECONDS * 1000
-      poke(state)
+    // Velocidad y estado del arrastre; en el navegador no hay ventana que mover.
+    const grab = { held: false, vx: 0, vy: 0 }
+    let press: { x: number; y: number; moved: boolean; lastX: number; lastY: number; lastAt: number } | null = null
+
+    // Al tomarla, se sigue al cursor aunque la ventana se mueva debajo de él.
+    const onPointerDown = (event: PointerEvent) => {
+      element.setPointerCapture(event.pointerId)
+      press = {
+        x: event.screenX,
+        y: event.screenY,
+        moved: false,
+        lastX: event.screenX,
+        lastY: event.screenY,
+        lastAt: performance.now(),
+      }
+      if (dragBridge) {
+        dragBridge.startDrag(event.screenX, event.screenY)
+        grab.held = true
+      }
+    }
+
+    // Mueve la ventana y calcula la velocidad, que anima el cuerpo.
+    const onDragMove = (event: PointerEvent) => {
+      if (!press || !dragBridge) return
+      const now = performance.now()
+      const seconds = Math.max((now - press.lastAt) / 1000, 0.001)
+      grab.vx = (event.screenX - press.lastX) / seconds
+      grab.vy = (event.screenY - press.lastY) / seconds
+      press.lastX = event.screenX
+      press.lastY = event.screenY
+      press.lastAt = now
+      press.moved ||= Math.hypot(event.screenX - press.x, event.screenY - press.y) > DRAG_THRESHOLD_PX
+      dragBridge.moveDrag(event.screenX, event.screenY)
+    }
+
+    // Al soltarla termina el arrastre; si no se movió, fue un clic y solo se sorprende.
+    const onPointerUp = () => {
+      if (!press) return
+      if (!press.moved) {
+        pokedUntil = performance.now() + POKE_SECONDS * 1000
+        poke(state)
+      }
+      press = null
+      grab.held = false
+      grab.vx = 0
+      grab.vy = 0
+      dragBridge?.endDrag()
     }
     addEventListener('pointermove', onPointerMove)
     element.addEventListener('pointerdown', onPointerDown)
+    element.addEventListener('pointermove', onDragMove)
+    element.addEventListener('pointerup', onPointerUp)
+    element.addEventListener('pointercancel', onPointerUp)
 
     // Bucle principal: limita la animación a 30 FPS, simula y dibuja.
     const tick = (now: number) => {
@@ -138,7 +199,9 @@ export function NovaSprite({
 
       stepNova(state, {
         dt,
-        blend: now < pokedUntil ? POKE_BLEND : current.blend,
+        blend: grab.held ? GRAB_BLEND : now < pokedUntil ? POKE_BLEND : current.blend,
+        // Si el cursor se detiene, ya no llegan eventos: la velocidad se apaga sola.
+        grab: { held: grab.held, vx: grab.vx, vy: grab.vy },
         activity: current.activity,
         level: Math.min(1, Math.max(0, (getLevel() - SILENCE) * SENSITIVITY)),
         pointer: gazeTarget,
@@ -146,6 +209,10 @@ export function NovaSprite({
         reducedMotion,
       })
       renderNova(buffer, state)
+
+      // Sin movimientos nuevos, la velocidad cae a cero para que no se quede inclinada.
+      grab.vx *= 0.8
+      grab.vy *= 0.8
 
       // La luz del ambiente toma el color de lo que siente; cuanto más siente, más se nota.
       const [red, green, blue] = state.pose.ramp.mid.map(Math.round)
@@ -162,6 +229,9 @@ export function NovaSprite({
       observer.disconnect()
       removeEventListener('pointermove', onPointerMove)
       element.removeEventListener('pointerdown', onPointerDown)
+      element.removeEventListener('pointermove', onDragMove)
+      element.removeEventListener('pointerup', onPointerUp)
+      element.removeEventListener('pointercancel', onPointerUp)
     }
   }, [getLevel])
 
@@ -173,7 +243,7 @@ export function NovaSprite({
         height={CANVAS_SIZE}
         role="img"
         aria-label={`Nova: ${describeBlend(blend).toLowerCase() || 'tranquila'}`}
-        className="[image-rendering:pixelated]"
+        className={`[image-rendering:pixelated] ${dragBridge ? 'cursor-grab touch-none active:cursor-grabbing' : ''}`}
       />
     </div>
   )

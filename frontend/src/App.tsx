@@ -218,7 +218,7 @@ export default function App() {
   // La ventana flotante solo muestra a Nova, su estado y lo último que dijo.
   if (IS_WIDGET) {
     return (
-      <main className="widget-drag group relative flex h-dvh flex-col items-center overflow-hidden px-2 pb-2">
+      <main className="group relative flex h-dvh flex-col items-center overflow-hidden px-2 pb-2">
         {/* Un punto discreto indica que el micrófono está abierto, aunque los botones estén ocultos */}
         {listenEnabled && (
           <span
@@ -245,7 +245,7 @@ export default function App() {
           </p>
         )}
         {/* Solo se ve Nova: los botones aparecen al pasar el cursor o al navegar con el teclado */}
-        <div className="widget-no-drag absolute bottom-2 flex flex-wrap items-center justify-center gap-1 rounded-full bg-night/80 p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <div className="absolute bottom-2 flex flex-wrap items-center justify-center gap-1 rounded-full bg-night/80 p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           {listenButton}
           {busy && (
             <button

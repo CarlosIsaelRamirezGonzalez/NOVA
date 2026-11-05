@@ -168,7 +168,8 @@ function drawFlames(buffer: PixelBuffer, state: NovaState, hx: number, hy: numbe
 function drawPortal(buffer: PixelBuffer, state: NovaState) {
   const cx = CANVAS_SIZE / 2 + Math.round(state.x * 0.25)
   const cy = 147
-  const energy = 0.6 + state.level * 0.4 + Math.max(0, -state.pose.lift) * 0.04
+  // El portal se apaga mientras la cargan: ya no está parada sobre él.
+  const energy = (0.6 + state.level * 0.4 + Math.max(0, -state.pose.lift) * 0.04) * (1 - state.grabbed * 0.92)
   const ramp = state.pose.ramp
 
   // Anillos concéntricos: del más ancho y oscuro al más pequeño y brillante.
@@ -191,6 +192,7 @@ function drawPortal(buffer: PixelBuffer, state: NovaState) {
   })
 
   // Destello del centro: horizontal, como luz sobre el suelo.
+  if (state.grabbed > 0.6) return
   const coreLight = pack(mix(ramp.light, hex('#FFFFFF'), 0.5))
   const reach = 7 + Math.round(state.level * 4)
   for (let dx = -reach; dx <= reach; dx++) {

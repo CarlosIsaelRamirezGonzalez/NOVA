@@ -32,16 +32,8 @@ body {
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Ventana flotante: sin fondo, y se puede arrastrar desde cualquier parte salvo los botones. */
+/* Ventana flotante: sin fondo, para que Nova flote sobre el escritorio. */
 html.widget,
 html.widget body {
   background: transparent;
-}
-
-.widget-drag {
-  -webkit-app-region: drag;
-}
-
-.widget-no-drag {
-  -webkit-app-region: no-drag;
 }

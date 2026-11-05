@@ -10,12 +10,60 @@ const ROOT = path.resolve(__dirname, '..')
 const SERVER_URL = 'http://127.0.0.1:8787'
 const SERVER_START_TIMEOUT_MS = 90_000
 const WIDGET_SIZE = { width: 300, height: 400 }
+// Cuánto de la ventana puede salirse del borde: Nova nunca se pierde de vista.
+const OFFSCREEN_MARGIN = 80
 const AUTOSTART_LABEL = 'com.nova.desktop'
 const AUTOSTART_FILE = path.join(os.homedir(), 'Library', 'LaunchAgents', `${AUTOSTART_LABEL}.plist`)
 
 let server = null
 let widget = null
 let tray = null
+let dragStart = null
+
+/**
+ * Devuelve el archivo donde se recuerda en qué parte de la pantalla quedó Nova.
+ *
+ * @returns {string} La ruta del archivo.
+ */
+const positionFile = () => path.join(app.getPath('userData'), 'nova-position.json')
+
+/**
+ * Lee la última posición de Nova.
+ *
+ * @returns {{x: number, y: number} | null} La posición, si sigue dentro de alguna pantalla.
+ */
+function savedPosition() {
+  try {
+    const { x, y } = JSON.parse(fs.readFileSync(positionFile(), 'utf8'))
+    const { bounds } = screen.getDisplayNearestPoint({ x, y })
+    const isVisible =
+      x + WIDGET_SIZE.width > bounds.x &&
+      x < bounds.x + bounds.width &&
+      y + WIDGET_SIZE.height > bounds.y &&
+      y < bounds.y + bounds.height
+    return isVisible ? { x, y } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Evita que Nova se salga por completo de la pantalla en la que está el cursor.
+ *
+ * @param {number} x - Columna deseada de la ventana.
+ * @param {number} y - Fila deseada de la ventana.
+ * @param {number} screenX - Columna del cursor.
+ * @param {number} screenY - Fila del cursor.
+ * @returns {{x: number, y: number}} La posición permitida.
+ */
+function clampToDisplay(x, y, screenX, screenY) {
+  const { bounds } = screen.getDisplayNearestPoint({ x: screenX, y: screenY })
+  const limit = (value, low, high) => Math.min(high, Math.max(low, value))
+  return {
+    x: limit(x, bounds.x - WIDGET_SIZE.width + OFFSCREEN_MARGIN, bounds.x + bounds.width - OFFSCREEN_MARGIN),
+    y: limit(y, bounds.y - WIDGET_SIZE.height + OFFSCREEN_MARGIN, bounds.y + bounds.height - OFFSCREEN_MARGIN),
+  }
+}
 
 // Nova empieza a hablar sola cuando la llamas: no hay clic que autorice el audio.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
@@ -63,10 +111,13 @@ async function startServer() {
 /** Crea la ventana flotante en la esquina inferior derecha. */
 function createWidget() {
   const { workArea } = screen.getPrimaryDisplay()
-  widget = new BrowserWindow({
-    ...WIDGET_SIZE,
+  const position = savedPosition() ?? {
     x: workArea.x + workArea.width - WIDGET_SIZE.width - 16,
     y: workArea.y + workArea.height - WIDGET_SIZE.height - 16,
+  }
+  widget = new BrowserWindow({
+    ...WIDGET_SIZE,
+    ...position,
     transparent: true,
     frame: false,
     resizable: false,
@@ -144,13 +195,70 @@ function createTray() {
   )
 }
 
+/**
+ * Prueba automática: simula arrastrar a Nova, guarda capturas y cierra la app.
+ *
+ * @param {string} shot - Archivo de la captura; las demás agregan un sufijo.
+ */
+async function runSmokeTest(shot) {
+  const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+  const capture = async (suffix) =>
+    fs.writeFileSync(shot.replace('.png', `${suffix}.png`), (await widget.webContents.capturePage()).toPNG())
+  const mouse = (type, x, y) =>
+    widget.webContents.sendInputEvent({ type, x: 150, y: 170, globalX: x, globalY: y, button: 'left', clickCount: 1 })
+
+  await wait(7000)
+  await capture('')
+  const [startX, startY] = widget.getPosition()
+  console.log('posición inicial', startX, startY)
+
+  // Toma a Nova y la lleva hacia arriba a la izquierda, en pasos.
+  mouse('mouseDown', startX + 150, startY + 170)
+  for (let step = 1; step <= 30; step += 1) {
+    mouse('mouseMove', startX + 150 - step * 12, startY + 170 - step * 6)
+    await wait(30)
+  }
+  await capture('-agarrada')
+  console.log('posición arrastrando', ...widget.getPosition())
+  mouse('mouseUp', startX + 150 - 360, startY + 170 - 180)
+  await wait(120)
+  await capture('-soltando')
+  await wait(1500)
+  await capture('-final')
+  console.log('posición final', ...widget.getPosition(), 'guardada', fs.existsSync(positionFile()))
+  app.quit()
+}
+
 // Solo una Nova a la vez: abrirla otra vez muestra la que ya existe.
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => widget?.show())
 
-  // El permiso del micrófono se pide hasta que enciendes "Oye Nova".
+  // Arrastrar: la ventana sigue al cursor, y al soltarla recuerda dónde quedó.
+  ipcMain.on('drag-start', (_event, screenX, screenY) => {
+    if (!widget) return
+    const [x, y] = widget.getPosition()
+    dragStart = { x, y, screenX, screenY }
+  })
+  ipcMain.on('drag-move', (_event, screenX, screenY) => {
+    if (!widget || !dragStart) return
+    const next = clampToDisplay(
+      dragStart.x + screenX - dragStart.screenX,
+      dragStart.y + screenY - dragStart.screenY,
+      screenX,
+      screenY,
+    )
+    widget.setPosition(Math.round(next.x), Math.round(next.y))
+  })
+  ipcMain.on('drag-end', () => {
+    dragStart = null
+    if (!widget) return
+    const [x, y] = widget.getPosition()
+    fs.writeFileSync(positionFile(), JSON.stringify({ x, y }))
+  })
+
+  // El permiso del micrófono se pide hasta que enciendes el micrófono.
   ipcMain.handle('request-microphone', () => systemPreferences.askForMediaAccess('microphone'))
 
   app.whenReady().then(async () => {
@@ -167,12 +275,7 @@ if (!app.requestSingleInstanceLock()) {
 
     // Prueba automática: guarda una captura de la ventana y cierra.
     const shot = process.env.NOVA_SMOKE_SHOT
-    if (shot) {
-      setTimeout(async () => {
-        fs.writeFileSync(shot, (await widget.webContents.capturePage()).toPNG())
-        app.quit()
-      }, 7000)
-    }
+    if (shot) void runSmokeTest(shot)
   })
 
   // Cerrar la ventana no apaga a Nova: sigue en la barra de menú.

@@ -30,6 +30,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | 14. Sale del navegador | `v0.7.0` | Nova flotando en el escritorio | La primera versión de la frase se activaba casi con cualquier cosa |
 | 15. Llamarla por su nombre | `v0.7.0` | Decir "Oye Nova" desde otra app | Nada del audio sale de la Mac; solo viaja el texto |
 | 16. Platicar de corrido | `v0.8.0` | Varias preguntas seguidas diciendo solo "Nova" una vez | Repetir la frase cada vez rompía la plática |
+| 17. Cargarla con el cursor | `v0.9.0` | Arrastrarla por toda la pantalla | La forma nativa de mover ventanas no dejaba animar nada: hubo que hacerla a mano |
 
 ## Decisiones y por qué
 | Decisión | Alternativa | Motivo |
