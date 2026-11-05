@@ -275,7 +275,7 @@ class NovaServer:
         return socket
 
     async def _set_listening(self, socket: web.WebSocketResponse, enabled: bool) -> None:
-        """Enciende o apaga "Oye Nova", sin trabar el servidor mientras se abre el micrófono.
+        """Enciende o apaga el micrófono, sin trabar el servidor mientras se abre el micrófono.
 
         Args:
             socket: Pantalla que lo pidió; a ella se responde lo que se oiga.

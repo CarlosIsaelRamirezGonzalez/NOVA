@@ -2,6 +2,11 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.8.0 · 5 de noviembre de 2026 · Conversación fluida
+- Se llama a Nova diciendo solo "Nova"; "Oye Nova" también funciona.
+- Después de cada respuesta sigue escuchando 20 segundos, sin tener que volver a llamarla.
+- La ventana flotante solo muestra a Nova y un punto de micrófono; los botones salen al pasar el cursor.
+
 ## v0.7.0 · 5 de noviembre de 2026 · "Oye Nova" y app de escritorio
 - "Oye Nova": Vosk detecta la frase y Whisper transcribe la petición, todo dentro de la Mac.
 - Ventana flotante transparente con icono en la barra de menú, hecha con Electron.

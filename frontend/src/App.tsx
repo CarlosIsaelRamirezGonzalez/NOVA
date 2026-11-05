@@ -38,12 +38,13 @@ function SearchNote({ query, sources = [] }: { query: string; sources?: string[]
 /** Si esta ventana es la flotante de la app de escritorio. */
 const IS_WIDGET = new URLSearchParams(location.search).has('widget')
 
-/** Texto del botón de "Oye Nova" según lo que esté pasando. */
+/** Texto del botón del micrófono según lo que esté pasando. */
 const LISTEN_LABELS: Record<ListenState, string> = {
-  off: 'Oye Nova: apagado',
+  off: 'Micrófono apagado',
   loading: 'Preparando…',
-  waiting: 'Di "Oye Nova"',
+  waiting: 'Micrófono encendido',
   hearing: 'Te escucho…',
+  conversing: 'Te escucho…',
   transcribing: 'Entendiendo…',
   error: 'Micrófono sin permiso',
 }
@@ -145,7 +146,7 @@ export default function App() {
     ? webSearch
     : listenState === 'transcribing'
       ? 'thinking'
-      : listenState === 'hearing'
+      : listenState === 'hearing' || listenState === 'conversing'
         ? 'listening'
         : phase !== 'idle'
           ? phase : dictation.listening || draft ? 'listening' : 'idle'
@@ -216,9 +217,16 @@ export default function App() {
 
   // La ventana flotante solo muestra a Nova, su estado y lo último que dijo.
   if (IS_WIDGET) {
-    const lastReply = messages.filter((message) => message.role === 'nova').at(-1)
     return (
-      <main className="widget-drag flex h-dvh flex-col items-center overflow-hidden px-2 pb-2">
+      <main className="widget-drag group relative flex h-dvh flex-col items-center overflow-hidden px-2 pb-2">
+        {/* Un punto discreto indica que el micrófono está abierto, aunque los botones estén ocultos */}
+        {listenEnabled && (
+          <span
+            role="img"
+            aria-label="Micrófono encendido"
+            className="absolute top-3 right-3 size-2 rounded-full bg-glow"
+          />
+        )}
         <div className="min-h-0 w-full flex-1">
           <NovaSprite
             blend={combineBlends(blend, camera.reflex)}
@@ -231,17 +239,13 @@ export default function App() {
             getLevel={getLevel}
           />
         </div>
-        {busy && lastReply && (
-          <p aria-live="polite" className="mb-1 line-clamp-3 rounded-lg bg-night/80 px-2 py-1 text-center text-xs">
-            {stripMarkup(lastReply.text)}
-          </p>
-        )}
         {notice && (
           <p role="alert" className="mb-1 rounded-lg bg-night/90 px-2 py-1 text-center text-xs text-alert">
             {notice}
           </p>
         )}
-        <div className="widget-no-drag flex flex-wrap items-center justify-center gap-1 rounded-full bg-night/80 p-1">
+        {/* Solo se ve Nova: los botones aparecen al pasar el cursor o al navegar con el teclado */}
+        <div className="widget-no-drag absolute bottom-2 flex flex-wrap items-center justify-center gap-1 rounded-full bg-night/80 p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           {listenButton}
           {busy && (
             <button
@@ -311,7 +315,7 @@ export default function App() {
                 : 'Cámara'}
           </button>
 
-          {/* Enciende o apaga la escucha de "Oye Nova" */}
+          {/* Enciende o apaga el micrófono */}
           {listenButton}
 
           {/* Abre la vista de su memoria */}

@@ -391,7 +391,7 @@ class PhotoUsage(BaseModel):
 # WebSocket con el navegador
 # ---------------------------------------------------------------------------
 class ListenRequest(BaseModel):
-    """Petición del navegador para encender o apagar "Oye Nova".
+    """Petición del navegador para encender o apagar el micrófono.
 
     Attributes:
         type: Discriminador de la petición.
@@ -673,19 +673,20 @@ class UsageEvent(BaseModel):
 
 
 class ListenStateEvent(BaseModel):
-    """En qué va la escucha de "Oye Nova".
+    """En qué va la escucha del micrófono.
 
     Attributes:
         type: Discriminador del evento.
-        state: Apagada, cargando, esperando la frase, oyendo, transcribiendo o con error.
+        state: Apagada, cargando, esperando que la llamen, oyendo, en plena conversación,
+            transcribiendo o con error.
     """
 
     type: Literal["listen_state"] = "listen_state"
-    state: Literal["off", "loading", "waiting", "hearing", "transcribing", "error"]
+    state: Literal["off", "loading", "waiting", "hearing", "conversing", "transcribing", "error"]
 
 
 class HeardEvent(BaseModel):
-    """Lo que Carlos dijo después de "Oye Nova"; empieza un turno.
+    """Lo que Carlos le pidió con la voz; empieza un turno.
 
     Attributes:
         type: Discriminador del evento.

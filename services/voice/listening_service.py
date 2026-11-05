@@ -1,4 +1,4 @@
-"""Escucha "Oye Nova" con el micrófono y transcribe lo que Carlos pide, todo dentro del equipo.
+"""Escucha cuando llaman a Nova con el micrófono y transcribe lo que Carlos pide, todo dentro del equipo.
 
 El audio nunca sale de la computadora ni se guarda: solo el texto transcrito llega al modelo.
 """
@@ -28,11 +28,15 @@ WAKE_GRAMMAR = json.dumps(
      "onda", "[unk]"]
 )
 MIN_WORD_CONFIDENCE = 0.5
+# Basta su nombre, siempre que sea lo primero que se dice; "la bossa nova" no la llama.
+MIN_NAME_CONFIDENCE = 0.5
 MAX_GAP_BETWEEN_WORDS_SECONDS = 0.35
 
 # Cuándo se da por terminado lo que Carlos dice.
 END_SILENCE_SECONDS = 1.0
 NO_SPEECH_TIMEOUT_SECONDS = 6.0
+# Después de que Nova responde, se puede seguir hablando sin volver a llamarla.
+CONVERSATION_SECONDS = 20.0
 MAX_COMMAND_SECONDS = 20.0
 MIN_COMMAND_SECONDS = 0.4
 # El umbral sigue al ruido de la habitación, para no confundirlo con voz.
@@ -46,10 +50,13 @@ WHISPER_HINT = "Conversación con Nova, una asistente mexicana."
 PHANTOM_PHRASES = ("gracias por ver", "suscríbete", "subtítulos", "amara.org", "[música]", "(música)")
 # Whisper escribe "Nova" de varias formas; se quita la frase del inicio para quedarse con la petición.
 WAKE_IN_TEXT = re.compile(
-    r"^\W*(?:oye|hoy|y)\b[\s,]*(?:es\s+|en\s+)?(?:no\s?va|nueva|nova)\b[\s.,:;!?¡¿-]*", re.IGNORECASE
+    r"^\W*(?:(?:oye|hoy|y)\b[\s,]*(?:es\s+|en\s+)?)?(?:no\s?va|nueva|nova)\b[\s.,:;!?¡¿-]*",
+    re.IGNORECASE,
 )
+# En plena conversación solo se quita si es claro: "hoy no va a llover" es una frase normal.
+CLEAR_WAKE_IN_TEXT = re.compile(r"^\W*(?:oye\b[\s,]*)?nova\b[\s.,:;!?¡¿-]*", re.IGNORECASE)
 
-ListenState = Literal["off", "loading", "waiting", "hearing", "transcribing", "error"]
+ListenState = Literal["off", "loading", "waiting", "hearing", "conversing", "transcribing", "error"]
 StateHandler = Callable[[ListenState], None]
 TextHandler = Callable[[str], None]
 
@@ -85,7 +92,7 @@ def remove_wake_phrase(text: str) -> str | None:
 
 
 class ListeningService:
-    """Máquina de estados: esperar la frase, oír la petición, transcribirla y volver a esperar."""
+    """Máquina de estados: esperar que la llamen, oír, transcribir y seguir la conversación."""
 
     def __init__(
         self,
@@ -112,6 +119,9 @@ class ListeningService:
         self.worker: threading.Thread | None = None
         self.wake_model: vosk.Model | None = None
         self.whisper: WhisperModel | None = None
+        self.conversation_pending = False
+        self.silence_limit = NO_SPEECH_TIMEOUT_SECONDS
+        self.noise_level = MIN_SPEECH_LEVEL / NOISE_MARGIN
         self._reset()
 
     def _reset(self) -> None:
@@ -121,7 +131,6 @@ class ListeningService:
         self.command = bytearray()
         self.heard_speech = False
         self.silent_bytes = 0
-        self.noise_level = MIN_SPEECH_LEVEL / NOISE_MARGIN
 
     def _set_state(self, state: ListenState) -> None:
         """Cambia de estado y avisa.
@@ -176,11 +185,21 @@ class ListeningService:
         """
         if not self.gate_open or self.state == "transcribing":
             # Lo que se oyó mientras Nova hablaba no debe contar como parte de la petición.
-            if self.state in ("hearing", "waiting") and (self.stream_audio or self.command):
+            if self.state in ("hearing", "conversing", "waiting"):
+                # Si estaban platicando, la conversación sigue cuando ella termine de responder.
+                self.conversation_pending = self.conversation_pending or self.state == "conversing"
                 self._reset()
                 self._set_state("waiting")
             return
-        if self.state == "hearing":
+
+        # Nova acaba de responder: ya no hace falta llamarla para seguir platicando.
+        if self.conversation_pending:
+            self.conversation_pending = False
+            self._reset()
+            self.silence_limit = CONVERSATION_SECONDS
+            self._set_state("conversing")
+
+        if self.state in ("hearing", "conversing"):
             self._hear_command(pcm)
         else:
             self._wait_for_wake(pcm)
@@ -220,6 +239,7 @@ class ListeningService:
             self.command = bytearray()
             self.heard_speech = False
             self.silent_bytes = 0
+            self.silence_limit = NO_SPEECH_TIMEOUT_SECONDS
             self._set_state("hearing")
 
     @staticmethod
@@ -232,6 +252,10 @@ class ListeningService:
         Returns:
             El segundo en que termina la frase, o `None` si no se dijo.
         """
+        # Solo el nombre, al inicio de lo que se dijo: "la bossa nova" no la llama.
+        if words and words[0]["word"] == "nova" and words[0]["conf"] >= MIN_NAME_CONFIDENCE:
+            return words[0]["end"]
+
         for first, second in zip(words, words[1:]):
             is_phrase = first["word"] == "oye" and second["word"] == "nova"
             is_sure = min(first["conf"], second["conf"]) >= MIN_WORD_CONFIDENCE
@@ -288,8 +312,8 @@ class ListeningService:
         seconds = len(self.command) / BYTES_PER_SECOND
         silence = self.silent_bytes / BYTES_PER_SECOND
 
-        # Dijo "Oye Nova" y nada más: no se gasta nada.
-        if not self.heard_speech and seconds >= NO_SPEECH_TIMEOUT_SECONDS:
+        # Nadie dijo nada: no se gasta nada, y hay que volver a llamarla.
+        if not self.heard_speech and seconds >= self.silence_limit:
             self._reset()
             self._set_state("waiting")
         elif self.heard_speech and (silence >= END_SILENCE_SECONDS or seconds >= MAX_COMMAND_SECONDS):
@@ -308,11 +332,14 @@ class ListeningService:
         text: str | None = " ".join(segment.text.strip() for segment in segments).strip()
         if includes_wake_phrase:
             text = remove_wake_phrase(text)
+        else:
+            text = CLEAR_WAKE_IN_TEXT.sub("", text).strip()
         self._reset()
         self._set_state("waiting")
         if not text or is_phantom(text):
             print("[Listen] nothing clear was said", flush=True)
             return
+        self.conversation_pending = True
         self.on_text(text)
 
     def _run(self) -> None:

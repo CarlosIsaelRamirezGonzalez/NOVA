@@ -49,19 +49,19 @@ export type Usage = {
   voice: { tier: string; used: number; limit: number; resets_at: number | null } | null
 }
 
-/** En qué va la escucha de "Oye Nova". */
-export type ListenState = 'off' | 'loading' | 'waiting' | 'hearing' | 'transcribing' | 'error'
+/** En qué va la escucha del micrófono. */
+export type ListenState = 'off' | 'loading' | 'waiting' | 'hearing' | 'conversing' | 'transcribing' | 'error'
 
 /** Funciones que agrega la app de escritorio; en el navegador no existen. */
 type DesktopBridge = { requestMicrophone: () => Promise<boolean> }
 
-/** Dónde se recuerda si "Oye Nova" estaba encendido. */
+/** Dónde se recuerda si el micrófono estaba encendido. */
 const LISTEN_STORAGE_KEY = 'nova-listen-enabled'
 /** Espera antes de reabrir el micrófono, para no captar el final de su propia voz. */
 const MIC_REOPEN_DELAY_MS = 350
 
 /**
- * Lee si "Oye Nova" estaba encendido.
+ * Lee si el micrófono estaba encendido.
  *
  * @returns Lo guardado; apagado si no hay nada o no se puede leer.
  */
@@ -197,7 +197,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     void audioContext.current.resume()
   }, [])
 
-  // Un tono corto avisa que oyó "Oye Nova" y que ya puede hablar.
+  // Un tono corto avisa que la llamaron y que ya puede hablar.
   const playWakeSound = useCallback(() => {
     const context = audioContext.current
     if (!context) return
@@ -456,7 +456,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'brain' }))
   }, [])
 
-  // Enciende o apaga "Oye Nova" y recuerda la elección.
+  // Enciende o apaga el micrófono y recuerda la elección.
   const toggleListening = useCallback(async () => {
     const next = !latestListenEnabled.current
     if (next) {
