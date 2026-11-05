@@ -552,6 +552,20 @@ class ClaudeUsage(BaseModel):
     searches: int = 0
 
 
+class SyncSettings(BaseModel):
+    """Datos de conexión de la base en la nube.
+
+    Attributes:
+        database_url: Dirección de la base en Turso.
+        auth_token: Clave secreta de esa base.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    database_url: str
+    auth_token: str = Field(repr=False)
+
+
 class UsageRecord(BaseModel):
     """Una llamada a una API, como se guarda en la memoria.
 

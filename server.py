@@ -57,6 +57,8 @@ from services.voice.tts_service import TTSService
 
 HOST = "127.0.0.1"
 PORT = 8787
+# Sincronizar cuesta casi un segundo de red, así que se agrupan los cambios.
+SYNC_SECONDS = 30
 HEARTBEAT_SECONDS = 30
 PHOTO_TIMEOUT_SECONDS = 10
 GESTURE_COOLDOWN_SECONDS = 30
@@ -78,7 +80,7 @@ class NovaServer:
         Args:
             config: Configuración validada de Nova.
         """
-        self.store = MemoryStore(config.memory_path)
+        self.store = MemoryStore(config.active_memory_path, sync=config.sync_settings)
         self.anthropic = create_anthropic_client(config.anthropic_api_key)
         self.usage = UsageService(self.store)
         self.agent = AgentManager(
@@ -120,11 +122,21 @@ class NovaServer:
 
         # El modelo tarda en cargar: se hace aparte para no retrasar el arranque.
         opening = asyncio.create_task(self.memory.open())
+        syncing = asyncio.create_task(self._keep_synced())
         yield
+        syncing.cancel()
+        await asyncio.gather(syncing, return_exceptions=True)
         await opening
         await self.memory.close()
+        await asyncio.to_thread(self.store.sync, True)
         await self.session.close()
         await self.anthropic.close()
+
+    async def _keep_synced(self) -> None:
+        """Sube los cambios a la nube cada cierto tiempo, en otro hilo para no trabar a Nova."""
+        while True:
+            await asyncio.sleep(SYNC_SECONDS)
+            await asyncio.to_thread(self.store.sync)
 
     async def handle_websocket(self, request: web.Request) -> web.WebSocketResponse:
         """Atiende una conexión del navegador hasta que se cierra.
@@ -172,6 +184,7 @@ class NovaServer:
                     await self.memory.forget_by_id(client_request.memory_id)
                     self.agent.conversation.reload()
                     await self._broadcast_history()
+                    await asyncio.to_thread(self.store.sync, True)
                     continue
 
                 # La foto se atiende aunque haya un turno en curso: ese turno la está esperando.

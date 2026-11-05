@@ -3,10 +3,18 @@
 Es la fuente de la verdad; se guarda en un archivo local que no entra a git.
 """
 
+import functools
+import os
 import sqlite3
+import threading
 import time
+import traceback
 from collections.abc import Callable
 from pathlib import Path
+from typing import Concatenate, ParamSpec, TypeVar
+
+import certifi
+import turso.sync
 
 from pydantic import ValidationError
 
@@ -17,6 +25,7 @@ from services.schemas import (
     MessageRole,
     StoredMessage,
     StoredMood,
+    SyncSettings,
     UsageDayRow,
     UsageRecord,
 )
@@ -24,6 +33,8 @@ from services.schemas import (
 SCHEMA_VERSION = 3
 OWNER_ONLY = 0o600
 
+# Sin llaves foráneas a propósito: SQLite no las aplicaba aquí, pero la nube sí, y al repetir los
+# cambios en otro orden rechazaba recuerdos válidos y detenía toda la sincronización.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,9 +53,9 @@ CREATE TABLE IF NOT EXISTS memories (
     content TEXT NOT NULL,
     importance REAL NOT NULL,
     emotions TEXT NOT NULL,
-    source_message_id INTEGER REFERENCES messages (id),
+    source_message_id INTEGER,
     created_at REAL NOT NULL,
-    superseded_by INTEGER REFERENCES memories (id)
+    superseded_by INTEGER
 );
 CREATE TABLE IF NOT EXISTS api_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,19 +72,64 @@ CREATE TABLE IF NOT EXISTS api_usage (
 MEMORY_COLUMNS = "id, kind, content, importance, emotions, source_message_id, created_at"
 
 
+Params = ParamSpec("Params")
+Result = TypeVar("Result")
+
+
+def _serialized(
+    method: Callable[Concatenate["MemoryStore", Params], Result],
+) -> Callable[Concatenate["MemoryStore", Params], Result]:
+    """Hace que un método espere si la base se está sincronizando en otro hilo.
+
+    Args:
+        method: Método que usa la conexión.
+
+    Returns:
+        El mismo método, protegido con el candado de la base.
+    """
+
+    @functools.wraps(method)
+    def locked(self: "MemoryStore", *args: Params.args, **kwargs: Params.kwargs) -> Result:
+        """Ejecuta el método con el candado tomado.
+
+        Args:
+            self: Memoria persistente.
+            *args: Argumentos del método.
+            **kwargs: Argumentos con nombre del método.
+
+        Returns:
+            Lo que devuelva el método.
+        """
+        with self.lock:
+            return method(self, *args, **kwargs)
+
+    return locked
+
+
 class MemoryStore:
     """Guarda y recupera lo que debe sobrevivir a un reinicio."""
 
-    def __init__(self, path: Path, clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self,
+        path: Path,
+        clock: Callable[[], float] = time.time,
+        sync: SyncSettings | None = None,
+    ) -> None:
         """Abre la base de datos y la crea si no existe.
 
         Args:
             path: Archivo de la base de datos.
             clock: Reloj en segundos reales; se puede sustituir en las pruebas.
+            sync: Base en la nube que se mantiene al día; sin ella, todo se queda en este equipo.
         """
         self.clock = clock
+        self.lock = threading.RLock()
+        self.traces_pending = False
+        self.path = path
+        self.sync_settings = sync
+        self.is_synced = sync is not None
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(path)
+        self.connection = self._open(path, sync)
 
         # Al borrar, sobrescribe los bytes: un recuerdo olvidado no queda oculto en el archivo.
         self.connection.execute("PRAGMA secure_delete = ON")
@@ -82,8 +138,64 @@ class MemoryStore:
         with self.connection:
             self.connection.executescript(SCHEMA)
             self.connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        path.chmod(OWNER_ONLY)
+        self._restrict_files()
 
+    @staticmethod
+    def _open(path: Path, sync: SyncSettings | None) -> object:
+        """Abre la conexión, local o sincronizada con la nube.
+
+        Args:
+            path: Archivo de la base de datos.
+            sync: Base en la nube, si hay.
+
+        Returns:
+            Una conexión con la interfaz de `sqlite3`.
+        """
+        if sync is None:
+            return sqlite3.connect(path)
+
+        # La librería usa los certificados del sistema, y el Python de macOS no trae ninguno.
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+        return turso.sync.connect(str(path), sync.database_url, auth_token=sync.auth_token)
+
+    def _restrict_files(self) -> None:
+        """Deja la base y sus archivos auxiliares legibles solo para tu usuario."""
+        for file in self.path.parent.glob(f"{self.path.name}*"):
+            file.chmod(OWNER_ONLY)
+
+    def sync(self, erase_local_traces: bool = False) -> None:
+        """Sube los cambios pendientes a la nube. Sin red, quedan guardados para el siguiente intento.
+
+        Args:
+            erase_local_traces: Rehace la copia local; se usa después de olvidar algo, porque el
+                registro de cambios de la sincronización guarda el texto aunque se borre la fila.
+        """
+        if not self.is_synced:
+            return
+        with self.lock:
+            self.traces_pending = self.traces_pending or erase_local_traces
+            try:
+                if self.connection.stats().cdc_operations > 0:
+                    self.connection.push()
+                if self.traces_pending:
+                    self._rebuild_local_copy()
+                self._restrict_files()
+            except Exception:
+                # Sin confirmar la subida no se borra nada: se reintenta en la siguiente vuelta.
+                traceback.print_exc()
+
+    def _rebuild_local_copy(self) -> None:
+        """Borra la copia local y la vuelve a bajar de la nube, ya sin lo olvidado.
+
+        Solo se llama después de una subida exitosa, así que no se pierde nada.
+        """
+        self.connection.close()
+        for file in self.path.parent.glob(f"{self.path.name}*"):
+            file.unlink()
+        self.connection = self._open(self.path, self.sync_settings)
+        self.traces_pending = False
+
+    @_serialized
     def add_usage(self, record: UsageRecord) -> None:
         """Guarda lo que gastó una llamada a una API.
 
@@ -105,6 +217,7 @@ class MemoryStore:
                 ),
             )
 
+    @_serialized
     def usage_by_day(self, first_day: str) -> list[UsageDayRow]:
         """Suma el gasto por día y servicio.
 
@@ -134,6 +247,7 @@ class MemoryStore:
             for row in rows
         ]
 
+    @_serialized
     def add_message(self, role: MessageRole, content: str) -> None:
         """Guarda un mensaje de la conversación.
 
@@ -147,6 +261,7 @@ class MemoryStore:
                 (role, content, self.clock()),
             )
 
+    @_serialized
     def last_message_id(self) -> int | None:
         """Busca el mensaje más reciente.
 
@@ -155,11 +270,13 @@ class MemoryStore:
         """
         return self.connection.execute("SELECT MAX(id) FROM messages").fetchone()[0]
 
+    @_serialized
     def delete_last_message(self) -> None:
         """Borra el último mensaje, por ejemplo el de un turno que falló."""
         with self.connection:
             self.connection.execute("DELETE FROM messages WHERE id = (SELECT MAX(id) FROM messages)")
 
+    @_serialized
     def recent_messages(self, limit: int) -> list[StoredMessage]:
         """Lee los mensajes más recientes.
 
@@ -177,6 +294,7 @@ class MemoryStore:
             for role, content, created_at in reversed(rows)
         ]
 
+    @_serialized
     def last_user_message_at(self) -> float | None:
         """Busca cuándo escribió Carlos por última vez.
 
@@ -188,6 +306,7 @@ class MemoryStore:
         ).fetchone()
         return row[0] if row else None
 
+    @_serialized
     def save_mood(self, blend: EmotionBlend) -> None:
         """Guarda el estado emocional actual.
 
@@ -202,6 +321,7 @@ class MemoryStore:
                 (blend.model_dump_json(), self.clock()),
             )
 
+    @_serialized
     def load_mood(self) -> StoredMood | None:
         """Lee el último estado emocional guardado.
 
@@ -261,6 +381,7 @@ class MemoryStore:
             created_at=now,
         )
 
+    @_serialized
     def delete_memories(self, memory_ids: list[int]) -> list[Memory]:
         """Borra recuerdos para siempre, junto con sus versiones obsoletas y su origen.
 
@@ -283,15 +404,15 @@ class MemoryStore:
                 f"OR superseded_by IN ({marks})",
                 [*ids, *ids],
             ).fetchall()
-            self.connection.execute(
-                f"DELETE FROM memories WHERE id IN ({marks}) OR superseded_by IN ({marks})",
-                [*ids, *ids],
-            )
+            where = f"id IN ({marks}) OR superseded_by IN ({marks})"
+            self._overwrite("memories", where, [*ids, *ids])
+            self.connection.execute(f"DELETE FROM memories WHERE {where}", [*ids, *ids])
             for (source_id,) in sources:
                 if source_id is not None:
                     self._delete_exchange(source_id)
         return memories
 
+    @_serialized
     def delete_messages_containing(self, term: str) -> int:
         """Borra de la conversación los mensajes que mencionan un término.
 
@@ -301,12 +422,33 @@ class MemoryStore:
         Returns:
             Cuántos mensajes se borraron.
         """
+        pattern = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         with self.connection:
-            cursor = self.connection.execute(
-                "DELETE FROM messages WHERE content LIKE ? ESCAPE '\\'",
-                ("%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",),
-            )
-        return cursor.rowcount
+            # Primero anota cuáles son: al sobrescribirlos ya no contendrían el término.
+            rows = self.connection.execute(
+                "SELECT id FROM messages WHERE content LIKE ? ESCAPE '\\'", [pattern]
+            ).fetchall()
+            for (message_id,) in rows:
+                self._overwrite("messages", "id = ?", [message_id])
+                self.connection.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+        return len(rows)
+
+    def _overwrite(self, table: str, where: str, parameters: list[object]) -> None:
+        """Sustituye un texto por relleno del mismo tamaño antes de borrar su fila.
+
+        El motor sincronizado no limpia el espacio que libera al borrar: sin esto, el texto
+        olvidado seguiría en el archivo y en las copias que se bajen de la nube.
+
+        Args:
+            table: Tabla con la columna `content`; siempre es un nombre fijo de este archivo.
+            where: Condición de las filas, con marcadores `?`.
+            parameters: Valores de los marcadores.
+        """
+        self.connection.execute(
+            f"UPDATE {table} SET content = "
+            f"replace(hex(zeroblob(length(CAST(content AS BLOB)))), '00', 'x') WHERE {where}",
+            parameters,
+        )
 
     def _delete_exchange(self, message_id: int) -> None:
         """Borra un mensaje y la respuesta que le siguió.
@@ -317,10 +459,13 @@ class MemoryStore:
         next_row = self.connection.execute(
             "SELECT id, role FROM messages WHERE id > ? ORDER BY id LIMIT 1", (message_id,)
         ).fetchone()
+        self._overwrite("messages", "id = ?", [message_id])
         self.connection.execute("DELETE FROM messages WHERE id = ?", (message_id,))
         if next_row and next_row[1] == "assistant":
+            self._overwrite("messages", "id = ?", [next_row[0]])
             self.connection.execute("DELETE FROM messages WHERE id = ?", (next_row[0],))
 
+    @_serialized
     def active_memories(self) -> list[Memory]:
         """Lee todos los recuerdos vigentes.
 
@@ -332,6 +477,7 @@ class MemoryStore:
         ).fetchall()
         return [self._to_memory(row) for row in rows]
 
+    @_serialized
     def memories_by_id(self, memory_ids: list[int]) -> list[Memory]:
         """Lee recuerdos vigentes por su identificador.
 
@@ -351,6 +497,7 @@ class MemoryStore:
         ).fetchall()
         return [self._to_memory(row) for row in rows]
 
+    @_serialized
     def profile_memories(self, minimum: float, limit: int) -> list[Memory]:
         """Lee el perfil: lo que Nova debe tener siempre presente, venga o no al caso.
 
