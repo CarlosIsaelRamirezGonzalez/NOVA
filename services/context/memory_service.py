@@ -6,8 +6,6 @@ import traceback
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 
-from aiohttp import ClientSession
-
 from services.agents.llms_service import LLMService
 from services.context.emotional_state_service import EmotionalStateService
 from services.context.memory_store import MemoryStore
@@ -20,13 +18,11 @@ from services.schemas import (
     ChatRequest,
     ExtractionResult,
     ForgetDecision,
-    JsonSchemaFormat,
     Memory,
-    ResponseFormat,
 )
 
 # Es rápido y barato, y extrae en segundo plano para no retrasar la respuesta.
-EXTRACTION_MODEL = "grok-4.20-non-reasoning"
+EXTRACTION_MODEL = "claude-haiku-5-5"
 
 RECALL_LIMIT = 6
 SEARCH_CANDIDATES = 15
@@ -90,13 +86,8 @@ Return:
   to erase the messages that mention it. Never include common words or his own name.
 """
 
-FORGET_FORMAT = ResponseFormat(
-    json_schema=JsonSchemaFormat(name="forget", json_schema=ForgetDecision.model_json_schema())
-)
-
-RESPONSE_FORMAT = ResponseFormat(
-    json_schema=JsonSchemaFormat(name="memories", json_schema=ExtractionResult.model_json_schema())
-)
+FORGET_SCHEMA = ForgetDecision.model_json_schema()
+EXTRACTION_SCHEMA = ExtractionResult.model_json_schema()
 
 
 def describe_age(created_at: float) -> str:
@@ -189,7 +180,7 @@ class MemoryService:
             query: Mensaje de Carlos.
 
         Returns:
-            La nota para Grok, o `None` si no recuerda nada relevante.
+            La nota para el modelo, o `None` si no recuerda nada relevante.
         """
         profile = self.store.profile_memories(PROFILE_IMPORTANCE, PROFILE_LIMIT)
         related = await self._search(query)
@@ -234,11 +225,10 @@ class MemoryService:
         except Exception:
             traceback.print_exc()
 
-    async def forget_by_id(self, session: ClientSession, memory_id: int) -> list[Memory]:
+    async def forget_by_id(self, memory_id: int) -> list[Memory]:
         """Borra un recuerdo concreto y los mensajes que lo mencionan.
 
         Args:
-            session: Sesión HTTP compartida.
             memory_id: Recuerdo que se va a borrar.
 
         Returns:
@@ -253,7 +243,7 @@ class MemoryService:
             if targets:
                 try:
                     request = self._forget_request(f"Olvida esto: {targets[0].content}")
-                    completion = await self.llm.complete(session, request)
+                    completion = await self.llm.complete(request)
                     terms = ForgetDecision.model_validate_json(completion).search_terms
                 except Exception:
                     traceback.print_exc()
@@ -261,13 +251,10 @@ class MemoryService:
         await self.publish()
         return forgotten
 
-    async def forget_from_request(
-        self, session: ClientSession, user_input: str
-    ) -> list[Memory]:
+    async def forget_from_request(self, user_input: str) -> list[Memory]:
         """Interpreta lo que Carlos quiere olvidar y lo borra.
 
         Args:
-            session: Sesión HTTP compartida.
             user_input: Mensaje con el que lo pidió.
 
         Returns:
@@ -276,7 +263,7 @@ class MemoryService:
         # Espera a las extracciones en curso: un recuerdo a medio guardar no debe escaparse.
         async with self.lock:
             request = self._forget_request(user_input)
-            completion = await self.llm.complete(session, request)
+            completion = await self.llm.complete(request)
             decision = ForgetDecision.model_validate_json(completion)
             forgotten = await self._forget(decision.memory_ids, decision.search_terms)
         await self.publish()
@@ -326,14 +313,13 @@ class MemoryService:
             f"Carlos's request:\n{user_input}"
         )
         return ChatRequest(
+            purpose="memory",
             model=EXTRACTION_MODEL,
             messages=[
                 ChatMessage(role="system", content=FORGET_PROMPT),
                 ChatMessage(role="user", content=content),
             ],
-            temperature=0.0,
-            stream=False,
-            response_format=FORGET_FORMAT,
+            output_schema=FORGET_SCHEMA,
         )
 
     def _links(self, memories: list[Memory]) -> list[BrainLink]:
@@ -359,16 +345,15 @@ class MemoryService:
                     links.append(BrainLink(source=pair[0], target=pair[1], strength=hit.score))
         return links
 
-    def remember_later(self, session: ClientSession, user_input: str, reply: str) -> None:
+    def remember_later(self, user_input: str, reply: str) -> None:
         """Lanza la extracción de recuerdos sin retrasar la respuesta.
 
         Args:
-            session: Sesión HTTP compartida.
             user_input: Mensaje de Carlos.
             reply: Respuesta de Nova.
         """
         # Se conserva la referencia a la tarea para que no se pierda antes de terminar.
-        task = asyncio.create_task(self._remember(session, user_input, reply))
+        task = asyncio.create_task(self._remember(user_input, reply))
         self.pending.add(task)
         task.add_done_callback(self.pending.discard)
 
@@ -426,13 +411,12 @@ class MemoryService:
         hits = await asyncio.to_thread(self.index.search, query, EXISTING_FOR_EXTRACTION)
         return self.store.memories_by_id([hit.memory_id for hit in hits])
 
-    async def _remember(self, session: ClientSession, user_input: str, reply: str) -> None:
+    async def _remember(self, user_input: str, reply: str) -> None:
         """Extrae recuerdos de un intercambio y los guarda.
 
         Un fallo aquí no debe afectar la conversación, solo se pierde ese recuerdo.
 
         Args:
-            session: Sesión HTTP compartida.
             user_input: Mensaje de Carlos.
             reply: Respuesta de Nova.
         """
@@ -442,7 +426,7 @@ class MemoryService:
                 source_id = self.store.last_message_id()
                 existing = await self._nearest(user_input)
                 request = self._extraction_request(user_input, reply, existing)
-                completion = await self.llm.complete(session, request)
+                completion = await self.llm.complete(request)
                 result = ExtractionResult.model_validate_json(completion)
                 await self._save(result, source_id, {memory.id for memory in existing})
             except Exception:
@@ -471,14 +455,13 @@ class MemoryService:
             f"Carlos said:\n{user_input}\n\nNova replied:\n{reply}"
         )
         return ChatRequest(
+            purpose="memory",
             model=EXTRACTION_MODEL,
             messages=[
                 ChatMessage(role="system", content=EXTRACTION_PROMPT),
                 ChatMessage(role="user", content=content),
             ],
-            temperature=0.0,
-            stream=False,
-            response_format=RESPONSE_FORMAT,
+            output_schema=EXTRACTION_SCHEMA,
         )
 
     async def _save(self, result: ExtractionResult, source_id: int | None, known: set[int]) -> None:

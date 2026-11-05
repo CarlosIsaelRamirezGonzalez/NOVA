@@ -17,9 +17,11 @@ from services.schemas import (
     MessageRole,
     StoredMessage,
     StoredMood,
+    UsageDayRow,
+    UsageRecord,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 OWNER_ONLY = 0o600
 
 SCHEMA = """
@@ -43,6 +45,16 @@ CREATE TABLE IF NOT EXISTS memories (
     source_message_id INTEGER REFERENCES messages (id),
     created_at REAL NOT NULL,
     superseded_by INTEGER REFERENCES memories (id)
+);
+CREATE TABLE IF NOT EXISTS api_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    purpose TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    searches INTEGER NOT NULL,
+    credits INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    created_at REAL NOT NULL
 );
 """
 
@@ -71,6 +83,56 @@ class MemoryStore:
             self.connection.executescript(SCHEMA)
             self.connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         path.chmod(OWNER_ONLY)
+
+    def add_usage(self, record: UsageRecord) -> None:
+        """Guarda lo que gastó una llamada a una API.
+
+        Args:
+            record: Registro de la llamada.
+        """
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO api_usage (purpose, input_tokens, output_tokens, searches, credits, "
+                "cost_usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    record.purpose,
+                    record.input_tokens,
+                    record.output_tokens,
+                    record.searches,
+                    record.credits,
+                    record.cost_usd,
+                    self.clock(),
+                ),
+            )
+
+    def usage_by_day(self, first_day: str) -> list[UsageDayRow]:
+        """Suma el gasto por día y servicio.
+
+        Args:
+            first_day: Primer día que se incluye, en formato `YYYY-MM-DD`.
+
+        Returns:
+            Una fila por cada día y servicio que tuvieron gasto.
+        """
+        rows = self.connection.execute(
+            "SELECT date(created_at, 'unixepoch', 'localtime') AS day, purpose, COUNT(*), "
+            "SUM(input_tokens), SUM(output_tokens), SUM(searches), SUM(credits), SUM(cost_usd) "
+            "FROM api_usage WHERE day >= ? GROUP BY day, purpose",
+            (first_day,),
+        ).fetchall()
+        return [
+            UsageDayRow(
+                day=row[0],
+                purpose=row[1],
+                calls=row[2],
+                input_tokens=row[3],
+                output_tokens=row[4],
+                searches=row[5],
+                credits=row[6],
+                cost_usd=row[7],
+            )
+            for row in rows
+        ]
 
     def add_message(self, role: MessageRole, content: str) -> None:
         """Guarda un mensaje de la conversación.

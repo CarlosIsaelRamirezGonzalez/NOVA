@@ -65,7 +65,7 @@ class EmotionalStateService:
     def absorb(self, blend: EmotionBlend) -> EmotionBlend:
         """Actualiza lo que siente Nova con su reacción al momento actual.
 
-        La reacción manda, porque Grok la elige sabiendo lo que Nova ya sentía: así un
+        La reacción manda, porque el modelo la elige sabiendo lo que Nova ya sentía: así un
         perdón puede aliviarla. Lo anterior no desaparece de golpe, sino que deja un resto.
 
         Args:
@@ -99,7 +99,7 @@ class EmotionalStateService:
     def intensify(self, blend: EmotionBlend) -> EmotionBlend:
         """Suma una reacción sin aliviar lo que Nova ya sentía.
 
-        A diferencia de `absorb`, sirve para sucesos que no vienen de una respuesta de Grok.
+        A diferencia de `absorb`, sirve para sucesos que no vienen de una respuesta del modelo.
 
         Args:
             blend: Emociones que provocó el suceso.
@@ -137,7 +137,7 @@ class EmotionalStateService:
         return blend
 
     def describe(self) -> str | None:
-        """Redacta el estado actual para incluirlo en la petición a Grok.
+        """Redacta el estado actual para incluirlo en la petición al modelo.
 
         Returns:
             La descripción en inglés, o `None` si Nova está en calma.

@@ -5,14 +5,16 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from services.voice.tts_service import DEFAULT_VOICE_ID
+
 
 class Config(BaseSettings):
     """Variables de entorno que necesita Nova.
 
     Attributes:
-        xai_api_key: Clave secreta de las APIs de xAI.
-        chat_api_url: Dirección de la API de chat.
-        tts_api_url: Dirección de la API de voz.
+        anthropic_api_key: Clave secreta de la API de Anthropic.
+        elevenlabs_api_key: Clave secreta de la API de ElevenLabs.
+        elevenlabs_voice_id: Voz de Nova en ElevenLabs.
         memory_path: Archivo de la memoria persistente.
         vector_path: Carpeta del índice de Qdrant; se puede reconstruir desde la memoria.
         models_path: Carpeta del modelo local de embeddings.
@@ -27,9 +29,9 @@ class Config(BaseSettings):
         hide_input_in_errors=True,
     )
 
-    xai_api_key: str = Field(min_length=1)
-    chat_api_url: str = Field(min_length=1)
-    tts_api_url: str = Field(min_length=1)
+    anthropic_api_key: str = Field(min_length=1)
+    elevenlabs_api_key: str = Field(min_length=1)
+    elevenlabs_voice_id: str = DEFAULT_VOICE_ID
     memory_path: Path = Path(__file__).with_name("data") / "nova.db"
     vector_path: Path = Path(__file__).with_name("data") / "qdrant"
     models_path: Path = Path(__file__).with_name("data") / "models"

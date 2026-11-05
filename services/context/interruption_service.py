@@ -1,7 +1,7 @@
 """Cuenta las interrupciones recientes y calcula su efecto en Nova.
 
 Nova está para Carlos: que la interrumpa no la enoja, apenas la toma por sorpresa. Se calcula en
-código para que la reacción sea fiable y no dependa de lo que elija Grok.
+código para que la reacción sea fiable y no dependa de lo que elija el modelo.
 """
 
 import time
@@ -57,7 +57,7 @@ class InterruptionService:
         self.moments = []
 
     def describe(self) -> str | None:
-        """Redacta las interrupciones recientes para incluirlas en la petición a Grok.
+        """Redacta las interrupciones recientes para incluirlas en la petición al modelo.
 
         Returns:
             La nota en inglés, o `None` si no hay ninguna reciente.

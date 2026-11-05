@@ -3,11 +3,37 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { BrainView } from './components/BrainView'
 import { NovaSprite } from './components/NovaSprite'
+import { UsageView } from './components/UsageView'
 import { useCamera } from './hooks/useCamera'
 import { useDictation } from './hooks/useDictation'
 import { useNova } from './hooks/useNova'
 import { describeBlend, type Activity, type EmotionBlend } from './nova/emotions'
 import type { Gesture } from './nova/gestures'
+
+/**
+ * Muestra en el chat qué buscó Nova y de dónde salió la información.
+ *
+ * @param props - Lo que buscó y los enlaces encontrados; sin enlaces si sigue buscando o falló.
+ * @returns La nota de la búsqueda.
+ */
+function SearchNote({ query, sources = [] }: { query: string; sources?: string[] }) {
+  return (
+    <p className="text-sm text-muted">
+      Buscó en internet: {query}
+      {sources.map((url) => (
+        <a
+          key={url}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-2 underline outline-none hover:text-cream focus-visible:text-cream"
+        >
+          {new URL(url).hostname.replace(/^www\./, '')}
+        </a>
+      ))}
+    </p>
+  )
+}
 
 /** Texto del estado según lo que está haciendo Nova. */
 const STATUS: Record<Activity, string> = {
@@ -15,6 +41,8 @@ const STATUS: Record<Activity, string> = {
   listening: 'Escuchando',
   thinking: 'Pensando',
   speaking: 'Hablando',
+  searching: 'Buscando en internet',
+  reading: 'Contándote lo que encontró',
 }
 
 /**
@@ -64,6 +92,7 @@ export default function App() {
   const {
     connected,
     phase,
+    webSearch,
     blend,
     calmCount,
     photoCount,
@@ -78,6 +107,8 @@ export default function App() {
     brain,
     recall,
     requestBrain,
+    usage,
+    requestUsage,
     forgetMemory,
     unlockAudio,
     getLevel,
@@ -86,6 +117,7 @@ export default function App() {
   // Lo que el usuario va diciendo, antes de enviarse.
   const [interim, setInterim] = useState('')
   const [brainOpen, setBrainOpen] = useState(false)
+  const [usageOpen, setUsageOpen] = useState(false)
   const transcript = useRef<HTMLDivElement>(null)
   const busy = phase !== 'idle'
 
@@ -93,8 +125,10 @@ export default function App() {
   const dictation = useDictation(setInterim, send, connected && !busy)
 
   // La actividad del personaje combina la fase del turno con lo que hace el usuario.
-  const activity: Activity =
-    phase !== 'idle' ? phase : dictation.listening || draft ? 'listening' : 'idle'
+  const activity: Activity = webSearch !== 'none'
+    ? webSearch
+    : phase !== 'idle'
+      ? phase : dictation.listening || draft ? 'listening' : 'idle'
 
   // Nova solo reacciona a un gesto si no está ocupada respondiendo.
   useEffect(() => {
@@ -104,6 +138,11 @@ export default function App() {
   })
 
   const notice = error ?? dictation.micError ?? camera.cameraError
+
+  // Con los gastos abiertos, los actualiza cuando Nova termina de responder.
+  useEffect(() => {
+    if (usageOpen && !busy) requestUsage()
+  }, [usageOpen, busy, requestUsage])
 
   // Mantiene visible el último mensaje, también si un aviso le quita espacio al chat.
   useEffect(() => {
@@ -191,6 +230,19 @@ export default function App() {
             Cerebro
           </button>
 
+          {/* Abre la vista de gastos de las APIs */}
+          <button
+            type="button"
+            onClick={() => {
+              requestUsage()
+              setUsageOpen(true)
+            }}
+            disabled={!connected}
+            className="rounded-full border border-line px-3 py-1 font-pixel text-sm text-cream outline-none hover:bg-panel focus-visible:border-glow disabled:opacity-40"
+          >
+            Gastos
+          </button>
+
           {/* Solo aparece si siente algo; durante una respuesta queda desactivado */}
           {connected && blend.length > 0 && (
             <button
@@ -215,6 +267,9 @@ export default function App() {
           onClose={() => setBrainOpen(false)}
         />
       )}
+
+      {/* Sus gastos, a pantalla completa */}
+      {usageOpen && <UsageView usage={usage} onClose={() => setUsageOpen(false)} />}
 
       {/* Vista previa en espejo: muestra lo que puede ver Nova */}
       {camera.active && (
@@ -246,7 +301,9 @@ export default function App() {
         {messages
           .filter((message) => message.role !== 'nova' || stripMarkup(message.text))
           .map((message) =>
-          message.role === 'photo' ? (
+          message.role === 'search' ? (
+            <SearchNote key={message.id} query={message.text} sources={message.sources} />
+          ) : message.role === 'photo' ? (
             <img
               key={message.id}
               src={message.text}

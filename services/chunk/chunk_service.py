@@ -1,4 +1,4 @@
-"""División de la respuesta de Grok en frases para la voz.
+"""División de la respuesta del modelo en frases para la voz.
 
 La entonación se genera por fragmento: cuanto más completo es, más natural suena. Por eso se
 corta por oraciones y no en cada coma.
@@ -33,7 +33,7 @@ class ChunkingService:
         """Procesa un token nuevo.
 
         Args:
-            token: Fragmento de texto recibido de Grok.
+            token: Fragmento de texto recibido del modelo.
 
         Returns:
             Las frases que quedaron completas; vacía si aún no hay ninguna.

@@ -1,4 +1,4 @@
-"""Separación de las etiquetas que Grok incluye en sus respuestas."""
+"""Separación de las etiquetas que el modelo incluye en sus respuestas."""
 
 import re
 from typing import get_args
@@ -11,12 +11,14 @@ PHOTO_TAG = "photo"
 FORGET_TAG = "forget"
 DEFAULT_INTENSITY = 1.0
 
+# Admite `[[search: clima en Monterrey]]`; va antes que las emociones por el `:` de su formato.
+SEARCH_PATTERN = re.compile(r"\[\[\s*search\s*:\s*([^\[\]]{1,200}?)\s*\]\]", re.IGNORECASE)
 # Admite `[[sad]]` y mezclas como `[[sad:0.6, worried:0.4]]`.
 _COMPONENT = r"[a-zA-Z]+(?:\s*:\s*\d*\.?\d+)?"
 TAG_PATTERN = re.compile(rf"\[\[\s*({_COMPONENT}(?:\s*,\s*{_COMPONENT})*)\s*\]\]")
 TAG_OPENING = "[["
 TAG_CLOSING = "]]"
-MAX_TAG_LENGTH = 120
+MAX_TAG_LENGTH = 240
 
 
 def parse_blend(body: str) -> EmotionBlend | None:
@@ -62,7 +64,7 @@ def strip_tags(text: str) -> str:
 
 
 class EmotionTagFilter:
-    """Separa `[[emoción]]`, `[[photo]]` y `[[forget]]`, aunque lleguen en varios tokens."""
+    """Separa `[[emoción]]`, `[[photo]]`, `[[forget]]` y `[[search: ...]]`, aunque lleguen en varios tokens."""
 
     def __init__(self) -> None:
         """Inicia sin texto pendiente."""
@@ -72,7 +74,7 @@ class EmotionTagFilter:
         """Procesa un token nuevo.
 
         Args:
-            token: Fragmento de texto recibido de Grok.
+            token: Fragmento de texto recibido del modelo.
 
         Returns:
             El texto que ya se puede liberar y las mezclas encontradas.
@@ -94,6 +96,14 @@ class EmotionTagFilter:
             # Libera lo anterior a la apertura y analiza desde ahí.
             result.text += self.pending[:start]
             self.pending = self.pending[start:]
+
+            # Búsqueda: su contenido es texto libre, no una lista de emociones.
+            search = SEARCH_PATTERN.match(self.pending)
+            if search:
+                result.search_query = result.search_query or search.group(1)
+                self.pending = self.pending[search.end() :]
+                continue
+
             match = TAG_PATTERN.match(self.pending)
 
             # Etiqueta completa: se retira del texto; si es desconocida, se descarta.

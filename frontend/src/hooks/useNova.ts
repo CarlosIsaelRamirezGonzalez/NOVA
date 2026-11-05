@@ -21,11 +21,42 @@ export type Brain = {
   mood: EmotionComponent[]
 }
 
+/** Para qué fue una llamada a una API. */
+export type UsagePurpose = 'conversation' | 'memory' | 'search' | 'voice'
+
+/** Gasto de un día, para la gráfica. */
+export type UsageDay = {
+  day: string
+  conversation: number
+  memory: number
+  search: number
+}
+
+/** Lo que muestra la vista de gastos. */
+export type Usage = {
+  today_usd: number
+  month_usd: number
+  days: UsageDay[]
+  services: {
+    purpose: UsagePurpose
+    calls: number
+    input_tokens: number
+    output_tokens: number
+    searches: number
+    credits: number
+    cost_usd: number
+  }[]
+  voice: { tier: string; used: number; limit: number; resets_at: number | null } | null
+}
+
 /** Lo último que recordó Nova y cuándo, en el reloj de la animación. */
 export type Recall = {
   ids: number[]
   at: number
 }
+
+/** En qué va una búsqueda en internet: buscando, o ya contando lo que encontró. */
+export type WebSearchStage = 'none' | 'searching' | 'reading'
 
 /** Fase del turno de conversación. */
 export type Phase = 'idle' | 'thinking' | 'speaking'
@@ -33,8 +64,9 @@ export type Phase = 'idle' | 'thinking' | 'speaking'
 /** Un mensaje visible en el chat. */
 export type Message = {
   id: number
-  role: 'user' | 'nova' | 'photo'
-  text: string // en una foto, es la imagen como data URL
+  role: 'user' | 'nova' | 'photo' | 'search'
+  text: string // en una foto, es la imagen como data URL; en una búsqueda, lo que se buscó
+  sources?: string[] // en una búsqueda, los enlaces de donde salió la información
 }
 
 /** Eventos JSON que envía el backend; el audio llega aparte, como binario. */
@@ -42,8 +74,11 @@ type ServerEvent =
   | { type: 'token'; text: string }
   | { type: 'emotion'; components: { name: string; intensity: number }[] }
   | { type: 'photo_request'; request_id: string; remaining: number }
+  | { type: 'search_start'; query: string }
+  | { type: 'search_done'; sources: string[] }
   | { type: 'interrupted' }
   | ({ type: 'brain' } & Brain)
+  | ({ type: 'usage' } & Usage)
   | { type: 'recall'; memory_ids: number[] }
   | { type: 'gesture_reaction'; gesture: Gesture }
   | { type: 'history'; replace: boolean; messages: { role: 'user' | 'assistant'; text: string }[] }
@@ -66,7 +101,7 @@ const MIN_EMOTION_INTENSITY = 0.08
  * Gestiona la conexión con el backend, la reproducción de la voz y el estado del chat.
  *
  * @param capturePhoto - Toma una foto; devuelve `null` si la cámara está apagada.
- * @param cameraOn - Si la cámara está encendida ahora; se le informa a Grok en cada mensaje.
+ * @param cameraOn - Si la cámara está encendida ahora; se le informa al modelo en cada mensaje.
  * @returns El estado de la conversación y las acciones para enviar mensajes y leer el volumen.
  */
 export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
@@ -78,6 +113,9 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
   const [calmCount, setCalmCount] = useState(0)
   const [brain, setBrain] = useState<Brain | null>(null)
   const [recall, setRecall] = useState<Recall | null>(null)
+  const [usage, setUsage] = useState<Usage | null>(null)
+  // La compu aparece al buscar y se queda mientras Nova te cuenta lo que encontró.
+  const [webSearch, setWebSearch] = useState<WebSearchStage>('none')
   const [photoCount, setPhotoCount] = useState(0)
   const [interruptCount, setInterruptCount] = useState(0)
   const [photosRemaining, setPhotosRemaining] = useState<number | null>(null)
@@ -110,7 +148,10 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
 
   // Vuelve al reposo cuando el servidor terminó y ya sonó todo el audio.
   const finishIfDone = useCallback(() => {
-    if (turnFinished.current && pendingAudio.current === 0) setPhase('idle')
+    if (turnFinished.current && pendingAudio.current === 0) {
+      setPhase('idle')
+      setWebSearch('none')
+    }
   }, [])
 
   // Los navegadores solo dejan iniciar audio después de un clic o tecla del usuario.
@@ -210,6 +251,10 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
           setBrain({ memories: event.memories, links: event.links, mood: event.mood })
           return
         }
+        if (event.type === 'usage') {
+          setUsage(event)
+          return
+        }
         if (event.type === 'recall') {
           setRecall({ ids: event.memory_ids, at: performance.now() })
           return
@@ -250,6 +295,17 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
             setMessages((current) => [...current, { id: nextId.current++, role: 'photo', text: dataUrl }])
           }
           ws.send(JSON.stringify({ type: 'photo', request_id: event.request_id, data_url: dataUrl }))
+        } else if (event.type === 'search_start') {
+          // Deja constancia en el chat de qué buscó.
+          setWebSearch('searching')
+          setMessages((current) => [...current, { id: nextId.current++, role: 'search', text: event.query }])
+        } else if (event.type === 'search_done') {
+          setWebSearch('reading')
+          setMessages((current) => {
+            const last = current.at(-1)
+            if (last?.role !== 'search') return current
+            return [...current.slice(0, -1), { ...last, sources: event.sources }]
+          })
         } else if (event.type === 'emotion') {
           // Descarta emociones que esta versión de la interfaz no conozca.
           setBlend(
@@ -279,6 +335,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
         if (disposed) return
         setConnected(false)
         stopAudio()
+        setWebSearch('none')
         turnFinished.current = true
         setPhase('idle')
         retry = setTimeout(connect, RECONNECT_MS)
@@ -341,6 +398,12 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'brain' }))
   }, [])
 
+  // Pide los gastos; se puede hacer aunque Nova esté respondiendo.
+  const requestUsage = useCallback(() => {
+    const ws = socket.current
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'usage' }))
+  }, [])
+
   // Borra un recuerdo; el servidor responde con el cerebro actualizado.
   const forgetMemory = useCallback((memoryId: number) => {
     const ws = socket.current
@@ -358,6 +421,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     discarding.current = true
     audioGeneration.current += 1
     stopAudio()
+    setWebSearch('none')
     turnFinished.current = true
     setPhase('idle')
     setInterruptCount((count) => count + 1)
@@ -400,6 +464,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
   return {
     connected,
     phase,
+    webSearch,
     blend,
     calmCount,
     photoCount,
@@ -414,6 +479,8 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     brain,
     recall,
     requestBrain,
+    usage,
+    requestUsage,
     forgetMemory,
     unlockAudio,
     getLevel,

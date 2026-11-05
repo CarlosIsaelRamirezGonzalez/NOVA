@@ -8,7 +8,7 @@ from nova.prompts.nova_prompts import NOVA_SYSTEM_PROMPT
 from services.agents.agm import AgentManager
 from services.agents.llms_service import LLMService
 from services.context.conversation_service import ConversationService
-from services.http_client import create_http_session
+from services.http_client import create_anthropic_client, create_http_session
 from services.schemas import EmotionBlend, PhotoResult
 from services.voice.tts_service import TTSService
 
@@ -46,8 +46,8 @@ async def main() -> None:
     audio = AudioManager()
     agent = AgentManager(
         ConversationService(NOVA_SYSTEM_PROMPT),
-        LLMService(config.xai_api_key, config.chat_api_url),
-        TTSService(config.xai_api_key, config.tts_api_url),
+        LLMService(create_anthropic_client(config.anthropic_api_key)),
+        TTSService(config.elevenlabs_api_key, config.elevenlabs_voice_id),
     )
 
     async with create_http_session() as session:

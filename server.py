@@ -17,13 +17,15 @@ from nova.prompts.nova_prompts import NOVA_AVATAR_INSTRUCTIONS, NOVA_SYSTEM_PROM
 from services.agents.agm import GESTURES, AgentManager, gesture_message
 from services.chunk.emotion_filter import strip_tags
 from services.agents.llms_service import LLMService
+from services.agents.web_search_service import WebSearchService
 from services.context.conversation_service import ConversationService
 from services.context.memory_service import MemoryService
 from services.context.memory_store import MemoryStore
 from services.context.obsidian_vault import ObsidianVault
 from services.context.photo_budget_service import PhotoBudgetService
+from services.context.usage_service import UsageService
 from services.context.vector_index import VectorIndex
-from services.http_client import create_http_session
+from services.http_client import create_anthropic_client, create_http_session
 from services.schemas import (
     CLIENT_REQUEST,
     BrainEvent,
@@ -45,7 +47,10 @@ from services.schemas import (
     PhotoResponse,
     PhotoResult,
     RecallEvent,
+    SearchDoneEvent,
+    SearchStartEvent,
     ServerEvent,
+    UsageRequest,
     TokenEvent,
 )
 from services.voice.tts_service import TTSService
@@ -74,12 +79,15 @@ class NovaServer:
             config: Configuración validada de Nova.
         """
         self.store = MemoryStore(config.memory_path)
+        self.anthropic = create_anthropic_client(config.anthropic_api_key)
+        self.usage = UsageService(self.store)
         self.agent = AgentManager(
             ConversationService(NOVA_SYSTEM_PROMPT + NOVA_AVATAR_INSTRUCTIONS, store=self.store),
-            LLMService(config.xai_api_key, config.chat_api_url),
-            TTSService(config.xai_api_key, config.tts_api_url),
+            LLMService(self.anthropic, self.usage),
+            TTSService(config.elevenlabs_api_key, config.elevenlabs_voice_id, usage=self.usage),
             store=self.store,
         )
+        self.agent.web_search = WebSearchService(self.anthropic, self.usage)
         self.memory = MemoryService(
             self.store,
             VectorIndex(config.vector_path, config.models_path),
@@ -116,6 +124,7 @@ class NovaServer:
         await opening
         await self.memory.close()
         await self.session.close()
+        await self.anthropic.close()
 
     async def handle_websocket(self, request: web.Request) -> web.WebSocketResponse:
         """Atiende una conexión del navegador hasta que se cierra.
@@ -155,8 +164,12 @@ class NovaServer:
                 if isinstance(client_request, BrainRequest):
                     await self._send(socket, await self.memory.build_brain())
                     continue
+                if isinstance(client_request, UsageRequest):
+                    quota = await self.agent.tts.quota(self.session)
+                    await self._send(socket, self.usage.report(quota))
+                    continue
                 if isinstance(client_request, ForgetMemoryRequest):
-                    await self.memory.forget_by_id(self.session, client_request.memory_id)
+                    await self.memory.forget_by_id(client_request.memory_id)
                     self.agent.conversation.reload()
                     await self._broadcast_history()
                     continue
@@ -178,7 +191,7 @@ class NovaServer:
                         await self._send(socket, ErrorEvent(message=BUSY_MESSAGE))
                     continue
 
-                # Reaccionar a un gesto gasta una llamada a Grok, así que tiene un límite.
+                # Reaccionar a un gesto gasta una llamada al modelo, así que tiene un límite.
                 if isinstance(client_request, GestureRequest):
                     if self._gesture_is_allowed(client_request.name):
                         turn = asyncio.create_task(self._react_to_gesture(socket, client_request.name))
@@ -205,14 +218,28 @@ class NovaServer:
                 await asyncio.gather(turn, return_exceptions=True)
         return socket
 
+    async def _broadcast(self, event: ServerEvent) -> None:
+        """Envía un evento a todas las pantallas abiertas.
+
+        Una pestaña que se cerró o recargó puede seguir en la lista un momento. Eso no debe
+        tumbar el turno de la pestaña con la que se está conversando.
+
+        Args:
+            event: Evento que se va a enviar.
+        """
+        for socket in list(self.sockets):
+            try:
+                await self._send(socket, event)
+            except ConnectionError:
+                self.sockets.discard(socket)
+
     async def _broadcast_brain(self, brain: BrainEvent) -> None:
         """Envía el cerebro actualizado a todas las pantallas abiertas.
 
         Args:
             brain: Estado del cerebro.
         """
-        for socket in list(self.sockets):
-            await self._send(socket, brain)
+        await self._broadcast(brain)
 
     async def _broadcast_recall(self, memory_ids: list[int]) -> None:
         """Avisa a las pantallas abiertas qué recuerdos acaba de recuperar Nova.
@@ -220,13 +247,11 @@ class NovaServer:
         Args:
             memory_ids: Recuerdos recuperados.
         """
-        for socket in list(self.sockets):
-            await self._send(socket, RecallEvent(memory_ids=memory_ids))
+        await self._broadcast(RecallEvent(memory_ids=memory_ids))
 
     async def _broadcast_history(self) -> None:
         """Sustituye el chat en todas las pantallas, tras borrar mensajes de la memoria."""
-        for socket in list(self.sockets):
-            await self._send(socket, HistoryEvent(messages=self._visible_history(), replace=True))
+        await self._broadcast(HistoryEvent(messages=self._visible_history(), replace=True))
 
     def _visible_history(self) -> list[HistoryMessage]:
         """Prepara la conversación guardada para mostrarla en el chat.
@@ -279,7 +304,7 @@ class NovaServer:
         turn_is_running = turn is not None and not turn.done()
         blend = self.agent.interrupt(turn_is_running)
 
-        # Cancelar también corta la conexión con Grok, así no se paga por el resto.
+        # Cancelar también corta la conexión con el modelo, así no se paga por el resto.
         if turn_is_running:
             turn.cancel()
             await asyncio.gather(turn, return_exceptions=True)
@@ -411,6 +436,14 @@ class NovaServer:
             """
             return await self._request_photo(socket)
 
+        async def send_search(event: SearchStartEvent | SearchDoneEvent) -> None:
+            """Avisa al navegador de una búsqueda en internet.
+
+            Args:
+                event: Inicio o final de la búsqueda.
+            """
+            await self._send(socket, event)
+
         async with self.turn_lock:
             try:
                 await self.agent.run_turn(
@@ -421,6 +454,7 @@ class NovaServer:
                     send_emotion,
                     take_photo,
                     camera_on,
+                    send_search,
                 )
                 await self._send(socket, DoneEvent())
             except asyncio.CancelledError:

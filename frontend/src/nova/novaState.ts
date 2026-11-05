@@ -87,6 +87,10 @@ export type NovaState = {
   headSink: number // la cabeza se hunde entre los hombros
   eyeTwitch: number // multiplica la altura de los ojos; menos de 1 es un tic
   huffTimer: number // segundos para el siguiente resoplido de frustración
+  typing: number // qué tanto apareció la compu, de 0 a 1
+  keying: number // qué tan rápido teclea, de 0 a 1; se detiene mientras cuenta lo que encontró
+  reachLeft: number // cuánto sube la mano izquierda al teclear, en píxeles
+  reachRight: number // cuánto sube la mano derecha al teclear, en píxeles
 }
 
 /**
@@ -132,6 +136,10 @@ export function createNovaState(): NovaState {
     headSink: 0,
     eyeTwitch: 1,
     huffTimer: 0,
+    typing: 0,
+    keying: 0,
+    reachLeft: 0,
+    reachRight: 0,
   }
 }
 
@@ -394,6 +402,10 @@ function targetPose(input: NovaInput): Pose {
       sparkleRate: Math.max(base.sparkleRate, 5),
     }
   }
+  if (input.activity === 'searching' || input.activity === 'reading') {
+    // Las manos bajan hacia el teclado, a los lados del cuerpo para que se vean teclear.
+    return { ...base, armLeft: 0.42, armRight: 0.42, bobHeight: base.bobHeight * 0.4 }
+  }
   if (input.activity === 'listening') {
     return { ...base, armLeft: base.armLeft + 0.3, armRight: base.armRight + 0.3, lift: base.lift - 1 }
   }
@@ -458,6 +470,14 @@ export function stepNova(state: NovaState, input: NovaInput) {
 
   const acting = performEmotions(state, dt, motion)
 
+  // La compu aparece poco a poco, y cada mano teclea a su propio ritmo para no verse mecánica.
+  const searching = activity === 'searching'
+  const reading = activity === 'reading'
+  state.typing = approach(state.typing, searching || reading ? 1 : 0, 5, dt)
+  state.keying = approach(state.keying, searching ? 1 : 0, 8, dt)
+  state.reachLeft = Math.max(0, Math.sin(state.time * 19)) * 5 * state.keying * motion
+  state.reachRight = Math.max(0, Math.sin(state.time * 23 + 1.7)) * 5 * state.keying * motion
+
   // Brazos con resorte: se pasan un poco y vuelven, lo que les quita rigidez.
   const gesture = activity === 'speaking' ? Math.sin(state.time * 5.5) * 0.28 * (0.3 + state.level) : 0
   const stiffness = 62
@@ -487,11 +507,20 @@ export function stepNova(state: NovaState, input: NovaInput) {
     state.wanderY = random(-0.45, 0.45)
   }
 
-  // Prioridad de la mirada: pensar, luego el cuadro de texto, luego el cursor reciente.
+  // Prioridad de la mirada: la compu, pensar, luego el cuadro de texto, luego el cursor reciente.
   let gazeX = state.wanderX
   let gazeY = state.wanderY
   let driftGoal = 0
-  if (activity === 'thinking') {
+  if (reading) {
+    // Te cuenta lo que encontró: te mira y de vez en cuando vuelve a revisar la pantalla.
+    const checksScreen = Math.sin(state.time * 0.9) > 0.55
+    gazeX = checksScreen ? Math.sin(state.time * 1.6) * 0.55 : 0
+    gazeY = checksScreen ? 0.9 : 0
+  } else if (searching) {
+    // Lee la pantalla de un lado a otro.
+    gazeX = Math.sin(state.time * 1.6) * 0.55
+    gazeY = 0.9
+  } else if (activity === 'thinking') {
     gazeX = Math.sin(state.time * 1.1) * 0.75
     gazeY = -0.75
   } else if (input.lookAtInput) {
@@ -554,6 +583,12 @@ export function stepNova(state: NovaState, input: NovaInput) {
   // Mientras piensa, unos puntos orbitan alrededor de las llamas.
   if (activity === 'thinking' && Math.random() < dt * 7) {
     emit(state, { kind: 'dot', x: headX + Math.cos(state.time * 3.4) * 32, y: headY - 26 + Math.sin(state.time * 3.4) * 11, vx: 0, vy: 0, life: 0.6, color: hex('#FFE6B5') })
+  }
+
+  // Cada tecla suelta una chispa junto a las manos.
+  if (searching && state.typing > 0.8 && !input.reducedMotion && Math.random() < dt * 11) {
+    const side = Math.random() < 0.5 ? -1 : 1
+    emit(state, { kind: 'dot', x: headX + state.actX + side * random(3, 13), y: headY + 33, vx: side * random(2, 10), vy: random(-30, -14), life: 0.45, color: hex('#7FE3FF') })
   }
 
   // La nube de la tristeza deja caer lluvia.

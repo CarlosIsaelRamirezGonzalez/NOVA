@@ -3,34 +3,26 @@
 from services.context.memory_store import MemoryStore
 from services.schemas import ChatMessage, ChatRequest, MessageRole
 
-# Grok solo recibe lo reciente: con todo el historial, cada mensaje costaría más que el anterior.
+# El modelo solo recibe lo reciente: con todo el historial, cada mensaje costaría más que el anterior.
 MAX_CONTEXT_MESSAGES = 40
 
 
 class ConversationService:
-    """Mantiene el contexto para Grok y lo guarda si hay memoria persistente.
+    """Mantiene el contexto para el modelo y lo guarda si hay memoria persistente.
 
     Attributes:
         system_prompt: Instrucciones de identidad y comportamiento de Nova.
         messages: Mensajes recientes, sin el prompt de sistema.
-        temperature: Grado de variación de las respuestas.
     """
 
-    def __init__(
-        self,
-        system_prompt: str,
-        temperature: float = 0.7,
-        store: MemoryStore | None = None,
-    ) -> None:
+    def __init__(self, system_prompt: str, store: MemoryStore | None = None) -> None:
         """Recupera la conversación guardada, si existe.
 
         Args:
             system_prompt: Instrucciones de identidad y comportamiento de Nova.
-            temperature: Grado de variación de las respuestas.
             store: Memoria persistente; sin ella, todo se pierde al cerrar.
         """
         self.system_prompt = ChatMessage(role="system", content=system_prompt)
-        self.temperature = temperature
         self.store = store
         saved = store.recent_messages(MAX_CONTEXT_MESSAGES) if store else []
         self.messages = [ChatMessage(role=item.role, content=item.content) for item in saved]
@@ -97,7 +89,7 @@ class ConversationService:
 
         messages.extend(extra_messages or [])
 
-        return ChatRequest(model=model, messages=messages, temperature=self.temperature)
+        return ChatRequest(model=model, messages=messages)
 
     def _add(self, role: MessageRole, text: str) -> None:
         """Guarda un mensaje y recorta el contexto a lo más reciente.

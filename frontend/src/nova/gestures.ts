@@ -62,8 +62,11 @@ export function detectGesture(hand: readonly HandPoint[]): Gesture | null {
   const ring = fingerRatio(hand, RING)
   const pinky = fingerRatio(hand, PINKY)
 
-  // Dedo de en medio: solo ese estirado. El pulgar se ignora porque cada quien lo pone distinto.
-  if (middle > EXTENDED_RATIO && index < CURLED_RATIO && ring < CURLED_RATIO && pinky < CURLED_RATIO) {
+  // Dedo de en medio: solo ese estirado y apuntando hacia arriba, porque una mano en reposo o de
+  // lado también puede dejar un dedo suelto. El pulgar se ignora: cada quien lo pone distinto.
+  const middlePointsUp = hand[MIDDLE.tip].y < hand[MIDDLE.middleJoint].y && hand[MIDDLE.middleJoint].y < hand[WRIST].y
+  const othersCurled = index < CURLED_RATIO && ring < CURLED_RATIO && pinky < CURLED_RATIO
+  if (middle > EXTENDED_RATIO && middlePointsUp && othersCurled) {
     return 'middle_finger'
   }
 

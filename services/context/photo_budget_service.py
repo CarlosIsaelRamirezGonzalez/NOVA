@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from services.schemas import PhotoStatus, PhotoUsage
 
 DEFAULT_DAILY_LIMIT = 20
-DEFAULT_COOLDOWN_SECONDS = 30.0
+DEFAULT_COOLDOWN_SECONDS = 10.0
 DEFAULT_USAGE_PATH = Path(__file__).resolve().parents[2] / "data" / "photo_usage.json"
 
 

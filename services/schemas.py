@@ -32,37 +32,11 @@ MAX_PHOTO_DATA_URL_CHARS = 2_000_000
 
 
 # ---------------------------------------------------------------------------
-# Contrato común con las APIs de xAI
+# Peticiones al modelo de lenguaje
 # ---------------------------------------------------------------------------
-class AuthHeaders(BaseModel):
-    """Cabeceras HTTP que requieren las APIs de xAI.
-
-    Attributes:
-        authorization: Valor de la cabecera `Authorization`.
-        content_type: Valor de la cabecera `Content-Type`.
-    """
-
-    model_config = ConfigDict(frozen=True, populate_by_name=True)
-
-    authorization: str = Field(alias="Authorization")
-    content_type: str = Field(default="application/json", alias="Content-Type")
-
-    @classmethod
-    def from_api_key(cls, api_key: str) -> "AuthHeaders":
-        """Crea las cabeceras a partir de una clave de API.
-
-        Args:
-            api_key: Clave secreta de xAI.
-
-        Returns:
-            Las cabeceras listas para usarse en una petición.
-        """
-        return cls(authorization=f"Bearer {api_key}")
+UsagePurpose = Literal["conversation", "memory", "search", "voice"]
 
 
-# ---------------------------------------------------------------------------
-# API de chat (Grok)
-# ---------------------------------------------------------------------------
 class TextPart(BaseModel):
     """Parte de texto de un mensaje con varias partes.
 
@@ -111,134 +85,83 @@ class ChatMessage(BaseModel):
     content: str | list[TextPart | ImagePart]
 
 
-class JsonSchemaFormat(BaseModel):
-    """Esquema JSON al que debe ajustarse una respuesta estructurada.
+class ToolDefinition(BaseModel):
+    """Función que el modelo puede pedir que se ejecute.
 
     Attributes:
-        name: Nombre del esquema.
-        strict: Si la respuesta debe cumplirlo exactamente.
-        json_schema: Esquema generado desde un modelo Pydantic.
+        name: Nombre de la función.
+        description: Cuándo debe usarla el modelo.
+        parameters: Esquema JSON de sus argumentos, generado desde un modelo Pydantic.
     """
-
-    model_config = ConfigDict(populate_by_name=True)
 
     name: str
-    strict: bool = True
-    json_schema: JsonValue = Field(alias="schema")
+    description: str
+    parameters: JsonValue
 
 
-class ResponseFormat(BaseModel):
-    """Formato pedido para la respuesta del modelo.
+class EmptyArguments(BaseModel):
+    """Argumentos de una herramienta que no necesita ninguno."""
+
+
+class SearchArguments(BaseModel):
+    """Argumentos con los que el modelo pide una búsqueda en internet.
 
     Attributes:
-        type: Tipo de formato.
-        json_schema: Esquema que debe cumplir.
+        query: Qué buscar, corto y específico.
     """
 
-    type: Literal["json_schema"] = "json_schema"
-    json_schema: JsonSchemaFormat
+    query: str
 
 
 class ChatRequest(BaseModel):
-    """Cuerpo de una petición a la API de chat.
+    """Petición al modelo de lenguaje.
 
     Attributes:
-        model: Identificador del modelo de lenguaje.
-        messages: Historial completo que recibirá el modelo.
-        temperature: Grado de variación de las respuestas.
-        stream: Si la respuesta debe llegar token por token.
-        response_format: Formato estructurado de la respuesta, si se necesita.
+        purpose: Para qué es la llamada; separa el gasto en la vista de gastos.
+        model: Identificador del modelo.
+        messages: Historial completo; el primer mensaje es el prompt de sistema.
+        output_schema: Esquema JSON de la respuesta, si debe ser estructurada.
+        tools: Herramientas que el modelo puede pedir, si tiene alguna en esta llamada.
     """
 
+    purpose: UsagePurpose = "conversation"
     model: str
     messages: list[ChatMessage]
-    temperature: float
-    stream: bool = True
-    response_format: ResponseFormat | None = None
-
-
-class CompletionMessage(BaseModel):
-    """Mensaje de una respuesta completa de la API de chat.
-
-    Attributes:
-        content: Texto de la respuesta.
-    """
-
-    content: str = ""
-
-
-class CompletionChoice(BaseModel):
-    """Una alternativa de una respuesta completa.
-
-    Attributes:
-        message: Mensaje de esta alternativa.
-    """
-
-    message: CompletionMessage
-
-
-class ChatCompletion(BaseModel):
-    """Respuesta completa de la API de chat, sin stream.
-
-    Attributes:
-        choices: Alternativas de la respuesta.
-    """
-
-    choices: list[CompletionChoice]
-
-
-class ChatDelta(BaseModel):
-    """Fragmento de texto nuevo dentro de un evento del stream.
-
-    Attributes:
-        content: Texto generado; puede faltar en eventos de control.
-    """
-
-    content: str | None = None
-
-
-class ChatChoice(BaseModel):
-    """Una de las respuestas alternativas de un evento del stream.
-
-    Attributes:
-        delta: Fragmento de texto de esta alternativa.
-    """
-
-    delta: ChatDelta = Field(default_factory=ChatDelta)
-
-
-class ChatStreamChunk(BaseModel):
-    """Evento recibido del stream de la API de chat.
-
-    Attributes:
-        choices: Alternativas del evento; el último puede traer solo métricas.
-    """
-
-    choices: list[ChatChoice] = Field(default_factory=list)
-
-    @property
-    def text(self) -> str:
-        """Devuelve el texto del evento.
-
-        Returns:
-            El texto de la primera alternativa, o una cadena vacía si no hay.
-        """
-        if not self.choices:
-            return ""
-        return self.choices[0].delta.content or ""
+    output_schema: JsonValue | None = None
+    tools: list[ToolDefinition] | None = None
 
 
 # ---------------------------------------------------------------------------
 # API de voz (TTS)
 # ---------------------------------------------------------------------------
-class TtsOutputFormat(BaseModel):
-    """Formato del audio que devuelve la API de voz.
+class ElevenLabsHeaders(BaseModel):
+    """Cabeceras HTTP que requiere la API de ElevenLabs.
 
     Attributes:
-        container: Contenedor del archivo de audio.
+        xi_api_key: Clave secreta.
+        content_type: Valor de la cabecera `Content-Type`.
     """
 
-    container: Literal["mp3"] = "mp3"
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    xi_api_key: str = Field(alias="xi-api-key")
+    content_type: str = Field(default="application/json", alias="Content-Type")
+
+
+class VoiceSettings(BaseModel):
+    """Cómo suena la voz de Nova.
+
+    Attributes:
+        stability: Menos estabilidad da más rango emocional.
+        similarity_boost: Qué tanto se apega a la voz original.
+        style: Qué tanto exagera el estilo de la voz.
+        speed: Multiplicador de la velocidad de habla.
+    """
+
+    stability: float = 0.35
+    similarity_boost: float = 0.75
+    style: float = 0.45
+    speed: float = 1.05
 
 
 class TtsRequest(BaseModel):
@@ -246,17 +169,13 @@ class TtsRequest(BaseModel):
 
     Attributes:
         text: Texto que se va a pronunciar.
-        voice_id: Identificador de la voz.
-        language: Código del idioma.
-        speed: Multiplicador de la velocidad de habla.
-        output_format: Formato del audio de salida.
+        model_id: Modelo de voz.
+        voice_settings: Cómo suena la voz.
     """
 
     text: str
-    voice_id: str
-    language: str
-    speed: float = Field(default=1.0, ge=0.7, le=1.5)
-    output_format: TtsOutputFormat = Field(default_factory=TtsOutputFormat)
+    model_id: str
+    voice_settings: VoiceSettings
 
 
 # ---------------------------------------------------------------------------
@@ -292,12 +211,14 @@ class FilteredText(BaseModel):
         blends: Mezclas encontradas, en orden de aparición.
         photo_requested: Si Nova pidió ver la cámara.
         forget_requested: Si Nova decidió olvidar algo porque Carlos se lo pidió.
+        search_query: Lo que Nova quiere buscar en internet, si pidió hacerlo.
     """
 
     text: str = ""
     blends: list[EmotionBlend] = Field(default_factory=list)
     photo_requested: bool = False
     forget_requested: bool = False
+    search_query: str | None = None
 
 
 class ForgetDecision(BaseModel):
@@ -414,18 +335,32 @@ class VectorHit(BaseModel):
     score: float
 
 
+class WebSearchResult(BaseModel):
+    """Lo que encontró una búsqueda en internet.
+
+    Attributes:
+        text: Resumen de lo encontrado.
+        sources: Enlaces de donde salió la información.
+    """
+
+    text: str
+    sources: list[str] = Field(default_factory=list)
+
+
 class StreamedReply(BaseModel):
-    """Resultado de una llamada completa a Grok.
+    """Resultado de una llamada completa al modelo.
 
     Attributes:
         raw_text: Respuesta tal como llegó, con sus etiquetas.
         photo_requested: Si Nova pidió ver la cámara.
         forget_requested: Si Nova decidió olvidar algo.
+        search_query: Lo que Nova quiere buscar en internet, si pidió hacerlo.
     """
 
     raw_text: str = ""
     photo_requested: bool = False
     forget_requested: bool = False
+    search_query: str | None = None
 
 
 class PhotoResult(BaseModel):
@@ -455,6 +390,16 @@ class PhotoUsage(BaseModel):
 # ---------------------------------------------------------------------------
 # WebSocket con el navegador
 # ---------------------------------------------------------------------------
+class UsageRequest(BaseModel):
+    """Petición del navegador para ver los gastos de las APIs.
+
+    Attributes:
+        type: Discriminador de la petición.
+    """
+
+    type: Literal["usage"] = "usage"
+
+
 class BrainRequest(BaseModel):
     """Petición del navegador para ver el cerebro de Nova.
 
@@ -571,6 +516,144 @@ class EmotionEvent(BaseModel):
 
     type: Literal["emotion"] = "emotion"
     components: list[EmotionComponent]
+
+
+class VoiceQuota(BaseModel):
+    """Créditos de voz según ElevenLabs.
+
+    Attributes:
+        tier: Plan contratado.
+        used: Créditos usados en el periodo.
+        limit: Créditos incluidos en el periodo.
+        resets_at: Cuándo se renuevan, en segundos; `None` si no se conoce.
+    """
+
+    tier: str
+    used: int
+    limit: int
+    resets_at: int | None = None
+
+
+class ClaudeUsage(BaseModel):
+    """Tokens que reportó Claude en una llamada.
+
+    Attributes:
+        input_tokens: Entrada sin caché.
+        cache_write_tokens: Entrada guardada en caché.
+        cache_read_tokens: Entrada leída de la caché.
+        output_tokens: Salida.
+        searches: Búsquedas web que hizo la API.
+    """
+
+    input_tokens: int = 0
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
+    output_tokens: int = 0
+    searches: int = 0
+
+
+class UsageRecord(BaseModel):
+    """Una llamada a una API, como se guarda en la memoria.
+
+    Attributes:
+        purpose: Para qué fue.
+        input_tokens: Tokens de entrada, con y sin caché.
+        output_tokens: Tokens de salida.
+        searches: Búsquedas web.
+        credits: Créditos de voz.
+        cost_usd: Costo estimado en dólares; no incluye planes fijos.
+    """
+
+    purpose: UsagePurpose
+    input_tokens: int = 0
+    output_tokens: int = 0
+    searches: int = 0
+    credits: int = 0
+    cost_usd: float = 0.0
+
+
+class UsageDayRow(UsageRecord):
+    """Gasto acumulado de un servicio en un día.
+
+    Attributes:
+        day: Fecha local en formato `YYYY-MM-DD`.
+        calls: Número de llamadas.
+    """
+
+    day: str
+    calls: int
+
+
+class UsageDay(BaseModel):
+    """Gasto de un día, para la gráfica.
+
+    Attributes:
+        day: Fecha local en formato `YYYY-MM-DD`.
+        conversation: Dólares en conversación.
+        memory: Dólares en recuerdos.
+        search: Dólares en búsquedas.
+    """
+
+    day: str
+    conversation: float
+    memory: float
+    search: float
+
+
+class UsageServiceTotal(UsageRecord):
+    """Gasto del mes de un servicio.
+
+    Attributes:
+        calls: Número de llamadas.
+    """
+
+    calls: int
+
+
+class UsageEvent(BaseModel):
+    """Todo lo que muestra la vista de gastos.
+
+    Attributes:
+        type: Discriminador del evento.
+        today_usd: Gasto de hoy en Claude.
+        month_usd: Gasto del mes en Claude.
+        month_name: Mes del desglose, en formato `YYYY-MM`.
+        days: Gasto de cada día reciente.
+        services: Desglose del mes por servicio.
+        voice: Créditos de voz, si se pudieron consultar.
+    """
+
+    type: Literal["usage"] = "usage"
+    today_usd: float
+    month_usd: float
+    month_name: str
+    days: list[UsageDay]
+    services: list[UsageServiceTotal]
+    voice: VoiceQuota | None = None
+
+
+class SearchStartEvent(BaseModel):
+    """Aviso de que Nova empezó a buscar en internet.
+
+    Attributes:
+        type: Discriminador del evento.
+        query: Qué está buscando.
+    """
+
+    type: Literal["search_start"] = "search_start"
+    query: str
+
+
+class SearchDoneEvent(BaseModel):
+    """Aviso de que Nova terminó de buscar en internet.
+
+    Attributes:
+        type: Discriminador del evento.
+        sources: Enlaces de donde salió la información; vacía si la búsqueda falló.
+    """
+
+    type: Literal["search_done"] = "search_done"
+    sources: list[str] = Field(default_factory=list)
 
 
 class PhotoRequestEvent(BaseModel):
@@ -706,6 +789,9 @@ ServerEvent = (
     | HistoryEvent
     | EmotionEvent
     | PhotoRequestEvent
+    | UsageEvent
+    | SearchStartEvent
+    | SearchDoneEvent
     | GestureReactionEvent
     | InterruptedEvent
     | DoneEvent
@@ -721,6 +807,7 @@ CLIENT_REQUEST = TypeAdapter(
         | InterruptRequest
         | GestureRequest
         | BrainRequest
+        | UsageRequest
         | ForgetMemoryRequest,
         Field(discriminator="type"),
     ]

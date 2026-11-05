@@ -10,7 +10,8 @@ const PHOTO_HEIGHT = 480
 const PHOTO_QUALITY = 0.8
 // Cara y manos se analizan por turnos, para no cargar demasiado el equipo.
 const DETECTION_INTERVAL_MS = 150
-const GESTURE_HOLD_READINGS = 2
+// Cara y manos van por turnos: cada lectura de manos toma unos 300 ms, así que esto es casi 1 s.
+const GESTURE_HOLD_READINGS = 3
 const NOSE_LANDMARK = 1
 const SMILE_THRESHOLD = 0.45
 const ABSENT_AFTER_MS = 3000
@@ -42,7 +43,7 @@ const NO_OBSERVATION: Observation = { smiling: false, greeting: false, lonely: f
  * Traduce lo observado en una reacción instintiva de Nova.
  *
  * @param observation - Lo que detectó la cámara.
- * @returns Las emociones que provoca; no se envían a Grok.
+ * @returns Las emociones que provoca; no se envían al modelo.
  */
 function reflexFor(observation: Observation): EmotionBlend {
   if (observation.greeting) return [{ name: 'happy', intensity: 0.6 }]

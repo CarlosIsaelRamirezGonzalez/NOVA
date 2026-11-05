@@ -15,6 +15,11 @@ const VISOR = pack(hex('#0D0C33'))
 const VISOR_EDGE = pack(hex('#262268'))
 const CHEST = pack(hex('#30238E'))
 
+// Colores de la compu: la luz de su pantalla, que ilumina a Nova.
+const SCREEN_LIGHT = hex('#7FE3FF')
+const LAPTOP_LID = pack(hex('#4A4296'))
+const LAPTOP_LID_LIGHT = pack(hex('#6C63C4'))
+
 // Colores base del portal; se mezclan con los de la emoción.
 const PORTAL_DARK = hex('#2B1E7A')
 const PORTAL_MID = hex('#4A3DE0')
@@ -29,6 +34,7 @@ const EXCLAMATION = ['##', '##', '##', '##', '  ', '##']
 const SWEAT = ['  #  ', ' ### ', '#####', '#####', ' ### ']
 const TANGLE = [' ###### ', '# ##  ##', '##  ## #', ' ## ### ', '  ####  ']
 const SCRIBBLE = [' ## # ', '#  # #', ' # ## ', '#  #  ']
+const MAGNIFIER = ['  ###  ', ' #   # ', ' #   # ', ' #   # ', '  ###  ', '     # ', '      #']
 const QUESTION = [' ### ', '#   #', '    #', '  ## ', '  #  ', '     ', '  #  ']
 
 /** Forma y movimiento de una llama individual. */
@@ -255,9 +261,10 @@ function drawBody(buffer: PixelBuffer, state: NovaState, cx: number, top: number
  * @param cy - Fila donde empieza el cuerpo.
  * @param side - Lado del cuerpo: -1 izquierdo, 1 derecho.
  * @param angle - Ángulo del brazo: 0 abajo, PI arriba.
+ * @param lift - Cuánto se acorta el brazo, en píxeles; al teclear, la mano sube y baja.
  */
-function drawArm(buffer: PixelBuffer, cx: number, cy: number, side: -1 | 1, angle: number) {
-  const reach = 15
+function drawArm(buffer: PixelBuffer, cx: number, cy: number, side: -1 | 1, angle: number, lift: number) {
+  const reach = 15 - lift
   const steps = 18
   const shoulderX = cx + side * 10
   const shoulderY = cy + 4
@@ -276,6 +283,59 @@ function drawArm(buffer: PixelBuffer, cx: number, cy: number, side: -1 | 1, angl
     const { x, y } = point(s)
     buffer.disc(x - 0.5, y, 2.7 + s * 1.3, i > steps * 0.86 ? WHITE_SOFT : WHITE)
   }
+}
+
+/**
+ * Dibuja la compu que aparece cuando Nova busca en internet. Mira hacia ella, así que se ve
+ * la parte de atrás de la tapa, y sus manos entran y salen por detrás al teclear.
+ *
+ * @param buffer - Lienzo de destino.
+ * @param state - Estado de la animación.
+ * @param cx - Columna del centro del cuerpo.
+ * @param top - Fila donde empieza el cuerpo.
+ */
+function drawLaptop(buffer: PixelBuffer, state: NovaState, cx: number, top: number) {
+  const shown = state.typing
+  if (shown < 0.02) return
+
+  // Sube desde el portal mientras se materializa.
+  const lidTop = top + 16 + Math.round((1 - shown) * 16)
+  const halfWidth = 25
+  const lidHeight = 22
+  const previousReveal = buffer.reveal
+  buffer.reveal = shown
+
+  // La luz de la pantalla se asoma por encima de la tapa.
+  const flicker = 0.16 + Math.sin(state.time * 9) * 0.03
+  buffer.glow(cx, lidTop - 1, 24, SCREEN_LIGHT, flicker * shown, 3)
+
+  // Tapa: contorno, relleno y un borde superior más claro que le da volumen.
+  for (let y = lidTop; y <= lidTop + lidHeight; y++) {
+    const isCorner = y === lidTop
+    const left = cx - halfWidth + (isCorner ? 1 : 0)
+    const right = cx + halfWidth - (isCorner ? 1 : 0)
+    for (let x = left; x <= right; x++) {
+      const isEdge = x === left || x === right || y === lidTop || y === lidTop + lidHeight
+      const isHighlight = y <= lidTop + 2
+      buffer.set(x, y, isEdge ? OUTLINE : isHighlight ? LAPTOP_LID_LIGHT : LAPTOP_LID)
+    }
+  }
+
+  // Logotipo de la tapa: la misma N de su pecho, encendida.
+  const pulse = 0.5 + Math.sin(state.time * 3) * 0.3
+  buffer.glyph(LETTER_N, cx - 3, lidTop + 8, pack(mix(SCREEN_LIGHT, hex('#FFFFFF'), pulse)))
+
+  // Base del teclado, un poco más ancha, de la que solo se ve el canto frontal.
+  const baseTop = lidTop + lidHeight + 1
+  for (let y = baseTop; y <= baseTop + 3; y++) {
+    const isEdge = y === baseTop + 3
+    for (let x = cx - halfWidth - 3; x <= cx + halfWidth + 3; x++) {
+      const isSide = x === cx - halfWidth - 3 || x === cx + halfWidth + 3
+      buffer.set(x, y, isEdge || isSide ? OUTLINE : y === baseTop ? WHITE_SOFT : LAVENDER)
+    }
+  }
+
+  buffer.reveal = previousReveal
 }
 
 /**
@@ -480,6 +540,17 @@ function drawVisorFeelings(
     }
   }
 
+  // Buscando: el texto de la pantalla se refleja en el visor y va subiendo.
+  if (state.typing > 0.2) {
+    for (let line = 0; line < 3; line++) {
+      const y = hy + 12 - Math.floor((time * 7 + line * 4) % 12)
+      const width = 5 + ((line * 5 + Math.floor(time * 2)) % 8)
+      for (let x = hx - 10; x <= hx - 10 + width * 2; x++) {
+        if (inVisor(x, y)) buffer.blend(x, y, SCREEN_LIGHT, state.typing * 0.28)
+      }
+    }
+  }
+
   for (const [eyeX, eyeY] of eyes) {
     // Triste: una lágrima baja por el visor desde cada ojo.
     if (feel.sad > 0.2) {
@@ -518,8 +589,13 @@ function drawSigns(buffer: PixelBuffer, state: NovaState, hx: number, hy: number
     drawSign(buffer, EXCLAMATION, hx + 27, hy - 36 - Math.round(Math.abs(Math.sin(time * 7)) * 3), pack(hex('#FFE6B5')))
   }
 
+  // Buscando: una lupa que flota; ocupa el lugar del signo de interrogación.
+  if (state.keying > 0.5) {
+    drawSign(buffer, MAGNIFIER, hx + 22 + Math.round(Math.sin(time * 3) * 2), hy - 40 + Math.round(Math.cos(time * 2) * 2), pack(hex('#7FE3FF')))
+  }
+
   // Curiosa: un signo de interrogación que se balancea.
-  if (feel.curious > threshold) {
+  if (feel.curious > threshold && state.keying <= 0.5) {
     drawSign(buffer, QUESTION, hx + 23 + Math.round(Math.sin(time * 2) * 2), hy - 38, pack(hex('#B8F0FF')))
   }
 
@@ -602,8 +678,9 @@ export function renderNova(buffer: PixelBuffer, state: NovaState) {
   buffer.glow(hx, hy - 10, 68, state.pose.ramp.mid, 0.13 + state.level * 0.2, 9)
   drawFlames(buffer, state, hx, hy)
   drawBody(buffer, state, cx, bodyTop)
-  drawArm(buffer, cx, bodyTop, -1, state.armLeft)
-  drawArm(buffer, cx, bodyTop, 1, state.armRight)
+  drawArm(buffer, cx, bodyTop, -1, state.armLeft, state.reachLeft)
+  drawArm(buffer, cx, bodyTop, 1, state.armRight, state.reachRight)
+  drawLaptop(buffer, state, cx, bodyTop)
   drawHead(buffer, state, hx, hy)
   drawSigns(buffer, state, hx, hy)
   buffer.reveal = 1
