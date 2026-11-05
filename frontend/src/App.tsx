@@ -83,15 +83,14 @@ export default function App() {
     getLevel,
   } = useNova(camera.capture, camera.active)
   const [draft, setDraft] = useState('')
+  // Lo que el usuario va diciendo, antes de enviarse.
+  const [interim, setInterim] = useState('')
   const [brainOpen, setBrainOpen] = useState(false)
   const transcript = useRef<HTMLDivElement>(null)
   const busy = phase !== 'idle'
 
-  // El dictado rellena el cuadro mientras se habla y envía al terminar.
-  const dictation = useDictation(setDraft, (text) => {
-    setDraft('')
-    send(text)
-  })
+  // Lo que dice se va escribiendo en el chat y se envía solo al hacer una pausa.
+  const dictation = useDictation(setInterim, send, connected && !busy)
 
   // La actividad del personaje combina la fase del turno con lo que hace el usuario.
   const activity: Activity =
@@ -100,14 +99,16 @@ export default function App() {
   // Nova solo reacciona a un gesto si no está ocupada respondiendo.
   useEffect(() => {
     onGesture.current = (gesture) => {
-      if (connected && !busy) sendGesture(gesture)
+      if (connected && !busy && !interim) sendGesture(gesture)
     }
   })
 
-  // Mantiene visible el último mensaje.
+  const notice = error ?? dictation.micError ?? camera.cameraError
+
+  // Mantiene visible el último mensaje, también si un aviso le quita espacio al chat.
   useEffect(() => {
     transcript.current?.scrollTo({ top: transcript.current.scrollHeight })
-  }, [messages])
+  }, [messages, interim, notice])
 
   // Envía el mensaje escrito si hay texto y Nova puede atenderlo.
   // Envía lo escrito. Si Nova está respondiendo, primero la interrumpe.
@@ -129,8 +130,6 @@ export default function App() {
     addEventListener('keydown', onKeyDown)
     return () => removeEventListener('keydown', onKeyDown)
   }, [busy, interrupt])
-
-  const notice = error ?? dictation.micError ?? camera.cameraError
 
   return (
     <main className="mx-auto flex h-dvh max-w-2xl flex-col px-4 pb-4">
@@ -267,6 +266,16 @@ export default function App() {
           </p>
           ),
         )}
+
+        {/* Lo que va diciendo; se oculta a lectores de pantalla para no leer cada palabra parcial */}
+        {interim && (
+          <p
+            aria-hidden
+            className="ml-auto w-fit max-w-[85%] rounded-2xl border border-dashed border-line px-4 py-2 whitespace-pre-wrap text-muted"
+          >
+            {interim}
+          </p>
+        )}
       </div>
 
       {/* Errores de conexión o del micrófono */}
@@ -292,25 +301,25 @@ export default function App() {
           maxLength={4000}
           className="h-12 min-w-0 flex-1 rounded-full border border-line bg-panel px-5 text-base outline-none placeholder:text-muted focus:border-glow"
         />
-        {/* Dictado, solo si el navegador lo admite */}
+        {/* Conversación por voz, solo si el navegador la admite */}
         {dictation.supported && (
           <button
             type="button"
             onClick={() => {
               unlockAudio()
-              // Hablar mientras ella habla también es interrumpirla.
-              if (busy) interrupt()
+              // Empezar a hablar mientras ella habla también es interrumpirla.
+              if (busy && !dictation.conversing) interrupt()
               dictation.toggle()
             }}
             disabled={!connected}
-            aria-pressed={dictation.listening}
+            aria-pressed={dictation.conversing}
             className={`h-12 rounded-full border px-4 text-sm font-medium outline-none focus-visible:border-glow disabled:opacity-40 ${
-              dictation.listening
+              dictation.conversing
                 ? 'border-glow bg-glow text-night'
                 : 'border-line text-cream hover:bg-panel'
             }`}
           >
-            {dictation.listening ? 'Listo' : 'Hablar'}
+            {dictation.conversing ? 'Terminar' : 'Hablar'}
           </button>
         )}
         {/* Enviar, o interrumpir si Nova está respondiendo y no hay nada escrito */}

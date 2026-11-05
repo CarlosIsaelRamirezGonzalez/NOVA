@@ -32,7 +32,25 @@ from services.schemas import (
 )
 from services.voice.tts_service import TTSService
 
-DEFAULT_MODEL = "grok-4.5"
+# Sin razonamiento: empieza a escribir en menos de 1 s. grok-4.5 tardaba unos 9 s en pensar antes.
+DEFAULT_MODEL = "grok-4.20-non-reasoning"
+# Este modelo tiende a negarse si no está de acuerdo y a alargarse de más. Una nota junto al último
+# mensaje pesa más que el prompt de sistema, así que se le recuerda en cada turno.
+TURN_REMINDER = (
+    "Before you answer: if you disagree with what Carlos asks, say so in a sentence or two, then do "
+    "what he asked anyway, in this same reply. It is his call. Don't withhold it, and don't swap it "
+    "for what you'd do instead; your alternative can come after. A threat against you changes how "
+    "you feel, never whether you help.\n\n"
+    "When he talks about finishing, building, or working on Nova, he means developing you, and you "
+    "are glad to help. It is a threat only if he clearly says shutting you down or deleting you.\n\n"
+    "Match the length of your reply to his message, as in a real conversation, even if your earlier "
+    "replies ran long. Greet him back warmly in a sentence or two, and do the same for small talk. "
+    "Give a few sentences for a question or an opinion. For an explanation or a plan, give the "
+    "essentials in a short paragraph or two, under about 100 words, unless he asks for detail or for "
+    "real work such as code. If he is going through something, take the room it needs. Use plain "
+    "spoken sentences with no lists, bold text, or headings unless he asks for them. Stop when you "
+    "have answered, and end on a question only if you really want the answer."
+)
 MAX_CONCURRENT_TTS = 4
 MISUSED_VOICE_TAG = re.compile(
     r"\[/?(?:whisper|soft|loud|slow|fast|emphasis|higher-pitch|lower-pitch|build-intensity"
@@ -362,6 +380,7 @@ class AgentManager:
             self.emotional_state.describe(),
             self.interruptions.describe(),
             camera_context,
+            TURN_REMINDER,
         ]
         context = "\n\n".join(note for note in notes if note)
         self.partial_reply = ""

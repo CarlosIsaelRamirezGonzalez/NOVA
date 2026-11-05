@@ -1,6 +1,7 @@
-"""Cuenta las interrupciones recientes y decide cuánto frustran a Nova.
+"""Cuenta las interrupciones recientes y calcula su efecto en Nova.
 
-Se calcula en código para que la reacción sea fiable y no dependa de lo que elija Grok.
+Nova está para Carlos: que la interrumpa no la enoja, apenas la toma por sorpresa. Se calcula en
+código para que la reacción sea fiable y no dependa de lo que elija Grok.
 """
 
 import time
@@ -9,11 +10,7 @@ from collections.abc import Callable
 from services.schemas import EmotionBlend, EmotionComponent
 
 MEMORY_SECONDS = 120.0
-
-# Las interrupciones se olvidan con el tiempo; cuantas más seguidas, mayor la reacción.
-ANNOYED_AT = 2
-FRUSTRATED_AT = 3
-ANGRY_AT = 4
+SURPRISE_INTENSITY = 0.15
 
 
 class InterruptionService:
@@ -48,26 +45,11 @@ class InterruptionService:
         """Registra una interrupción.
 
         Returns:
-            Las emociones que provoca, según cuántas lleva.
+            Las emociones que provoca: siempre una sorpresa leve, sin importar cuántas lleve.
         """
         self.moments.append(self.clock())
-        count = self.count()
-
-        # La primera se tolera: cualquiera interrumpe alguna vez.
-        if count < ANNOYED_AT:
-            return EmotionBlend(components=[EmotionComponent(name="surprised", intensity=0.25)])
-        if count < FRUSTRATED_AT:
-            return EmotionBlend(components=[EmotionComponent(name="frustrated", intensity=0.4)])
-        if count < ANGRY_AT:
-            return EmotionBlend(components=[EmotionComponent(name="frustrated", intensity=0.7)])
-
-        # A partir de aquí ya no es solo frustración, y sigue subiendo si no para.
-        anger = min(0.9, 0.35 + (count - ANGRY_AT) * 0.15)
         return EmotionBlend(
-            components=[
-                EmotionComponent(name="frustrated", intensity=0.9),
-                EmotionComponent(name="angry", intensity=anger),
-            ]
+            components=[EmotionComponent(name="surprised", intensity=SURPRISE_INTENSITY)]
         )
 
     def clear(self) -> None:
@@ -85,5 +67,5 @@ class InterruptionService:
             return None
         return (
             f"Carlos has interrupted you {count} time(s) in the last couple of minutes. "
-            "Let that show as described in your instructions."
+            "That's fine: it doesn't bother you, and there is no need to mention it."
         )
