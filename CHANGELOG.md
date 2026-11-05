@@ -1,0 +1,37 @@
+# Historial de versiones
+
+Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
+
+## v0.6.0 · 5 de noviembre de 2026 · Memoria en la nube y ahorro de voz
+- La memoria se guarda en una copia local que se sincroniza con Turso cada 30 segundos.
+- Olvidar sobrescribe el texto, lo borra de la nube y rehace la copia local.
+- La voz lee hasta unos 600 caracteres por respuesta; el resto y el código se quedan en pantalla.
+- Script para migrar la memoria local, con comprobación por huellas: `scripts/migrate_memory_to_cloud.py`.
+
+## v0.5.0 · 5 de noviembre de 2026 · Claude, ElevenLabs, búsqueda y gastos
+- Claude Haiku 5.5 reemplaza a Grok, y ElevenLabs a la voz de xAI (voz: Gabriela).
+- Búsqueda en internet: aparece una compu, Nova teclea y se queda ahí mientras cuenta lo que encontró.
+- La cámara, olvidar y buscar son herramientas del modelo, más fiables que las etiquetas de texto.
+- Vista de gastos: Claude por día, créditos de voz y desglose por servicio.
+- Más emoción en el texto y en la voz.
+- Los gestos ya no la molestan, y la detección del dedo es más estricta.
+- Corrección: una pestaña cerrada ya no tumba el turno de otra.
+
+## v0.4.0 · 5 de noviembre de 2026 · Conversación por voz y velocidad
+- Conversación continua: lo que dices se escribe en vivo y se envía al hacer una pausa.
+- Cambio a un modelo sin razonamiento: de unos 10 s a cerca de 1 s hasta oírla.
+- Respuestas de longitud proporcional a lo que le dices.
+- Interrumpirla ya no la enoja.
+
+## v0.3.0 · 4 de noviembre de 2026 · Cerebro en 3D
+- Cada recuerdo es una neurona y cada parecido, un axón, con three.js.
+- Las neuronas se encienden y lanzan impulsos cuando Nova recuerda.
+
+## v0.2.0 · 4 de noviembre de 2026 · Cara, emociones, cámara y memoria
+- Personaje en pixel art en un lienzo, basado en un boceto a mano, con emociones mezcladas.
+- Voz, interrupciones y botón para calmarla.
+- Cámara con fotos a petición y gestos de la mano, detectados dentro del equipo.
+- Memoria en SQLite, búsqueda por significado con Qdrant, bóveda de Obsidian y "olvida eso".
+
+## v0.1.0 · 25 de septiembre de 2026 · Punto de partida
+- Backend en Python que conversaba por consola con streaming y voz.
