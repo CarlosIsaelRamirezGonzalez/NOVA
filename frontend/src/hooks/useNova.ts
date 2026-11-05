@@ -49,6 +49,30 @@ export type Usage = {
   voice: { tier: string; used: number; limit: number; resets_at: number | null } | null
 }
 
+/** En qué va la escucha de "Oye Nova". */
+export type ListenState = 'off' | 'loading' | 'waiting' | 'hearing' | 'transcribing' | 'error'
+
+/** Funciones que agrega la app de escritorio; en el navegador no existen. */
+type DesktopBridge = { requestMicrophone: () => Promise<boolean> }
+
+/** Dónde se recuerda si "Oye Nova" estaba encendido. */
+const LISTEN_STORAGE_KEY = 'nova-listen-enabled'
+/** Espera antes de reabrir el micrófono, para no captar el final de su propia voz. */
+const MIC_REOPEN_DELAY_MS = 350
+
+/**
+ * Lee si "Oye Nova" estaba encendido.
+ *
+ * @returns Lo guardado; apagado si no hay nada o no se puede leer.
+ */
+function readListenPreference(): boolean {
+  try {
+    return localStorage.getItem(LISTEN_STORAGE_KEY) === 'on'
+  } catch {
+    return false
+  }
+}
+
 /** Lo último que recordó Nova y cuándo, en el reloj de la animación. */
 export type Recall = {
   ids: number[]
@@ -79,6 +103,8 @@ type ServerEvent =
   | { type: 'interrupted' }
   | ({ type: 'brain' } & Brain)
   | ({ type: 'usage' } & Usage)
+  | { type: 'listen_state'; state: ListenState }
+  | { type: 'heard'; text: string }
   | { type: 'recall'; memory_ids: number[] }
   | { type: 'gesture_reaction'; gesture: Gesture }
   | { type: 'history'; replace: boolean; messages: { role: 'user' | 'assistant'; text: string }[] }
@@ -114,6 +140,9 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
   const [brain, setBrain] = useState<Brain | null>(null)
   const [recall, setRecall] = useState<Recall | null>(null)
   const [usage, setUsage] = useState<Usage | null>(null)
+  const [listenEnabled, setListenEnabled] = useState(readListenPreference)
+  const [listenState, setListenState] = useState<ListenState>('off')
+  const latestListenEnabled = useRef(listenEnabled)
   // La compu aparece al buscar y se queda mientras Nova te cuenta lo que encontró.
   const [webSearch, setWebSearch] = useState<WebSearchStage>('none')
   const [photoCount, setPhotoCount] = useState(0)
@@ -166,6 +195,20 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
       samples.current = new Uint8Array(new ArrayBuffer(node.fftSize))
     }
     void audioContext.current.resume()
+  }, [])
+
+  // Un tono corto avisa que oyó "Oye Nova" y que ya puede hablar.
+  const playWakeSound = useCallback(() => {
+    const context = audioContext.current
+    if (!context) return
+    const oscillator = context.createOscillator()
+    const volume = context.createGain()
+    oscillator.frequency.value = 880
+    volume.gain.setValueAtTime(0.08, context.currentTime)
+    volume.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.18)
+    oscillator.connect(volume).connect(context.destination)
+    oscillator.start()
+    oscillator.stop(context.currentTime + 0.18)
   }, [])
 
   // Corta la voz, por ejemplo si se pierde la conexión.
@@ -236,6 +279,8 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
         discarding.current = false
         setConnected(true)
         setError(null)
+        // Si estaba encendido, sigue encendido después de recargar o reconectar.
+        if (latestListenEnabled.current) ws.send(JSON.stringify({ type: 'listen', enabled: true }))
       }
 
       // El binario es audio; el texto es un evento JSON.
@@ -249,6 +294,19 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
         // El cerebro no depende del turno en curso, ni siquiera si se acaba de interrumpir.
         if (event.type === 'brain') {
           setBrain({ memories: event.memories, links: event.links, mood: event.mood })
+          return
+        }
+        if (event.type === 'listen_state') {
+          setListenState(event.state)
+          if (event.state === 'hearing') playWakeSound()
+          return
+        }
+        if (event.type === 'heard') {
+          // Lo que se dijo con la voz entra al chat como si se hubiera escrito.
+          discarding.current = false
+          turnFinished.current = false
+          setPhase('thinking')
+          setMessages((current) => [...current, { id: nextId.current++, role: 'user', text: event.text }])
           return
         }
         if (event.type === 'usage') {
@@ -349,7 +407,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
       socket.current?.close()
       stopAudio()
     }
-  }, [enqueueAudio, finishIfDone, stopAudio])
+  }, [enqueueAudio, finishIfDone, playWakeSound, stopAudio])
 
   // Lo que siente se desvanece poco a poco, en vez de desaparecer de golpe.
   useEffect(() => {
@@ -397,6 +455,45 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     const ws = socket.current
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'brain' }))
   }, [])
+
+  // Enciende o apaga "Oye Nova" y recuerda la elección.
+  const toggleListening = useCallback(async () => {
+    const next = !latestListenEnabled.current
+    if (next) {
+      unlockAudio()
+      const bridge = (window as unknown as { novaDesktop?: DesktopBridge }).novaDesktop
+      if (bridge && !(await bridge.requestMicrophone())) {
+        setListenState('error')
+        return
+      }
+    }
+    latestListenEnabled.current = next
+    setListenEnabled(next)
+    if (!next) setListenState('off')
+    try {
+      localStorage.setItem(LISTEN_STORAGE_KEY, next ? 'on' : 'off')
+    } catch {
+      // Sin almacenamiento, solo dura hasta recargar.
+    }
+    const ws = socket.current
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'listen', enabled: next }))
+  }, [unlockAudio])
+
+  // El micrófono se cierra mientras Nova responde, para que no se oiga a sí misma.
+  useEffect(() => {
+    const send = () => {
+      const ws = socket.current
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'mic_gate', open: phase === 'idle', camera_on: cameraOn }))
+      }
+    }
+    if (phase !== 'idle') {
+      send()
+      return
+    }
+    const timer = setTimeout(send, MIC_REOPEN_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [phase, cameraOn, connected])
 
   // Pide los gastos; se puede hacer aunque Nova esté respondiendo.
   const requestUsage = useCallback(() => {
@@ -481,6 +578,9 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     requestBrain,
     usage,
     requestUsage,
+    listenEnabled,
+    listenState,
+    toggleListening,
     forgetMemory,
     unlockAudio,
     getLevel,

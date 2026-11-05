@@ -390,6 +390,32 @@ class PhotoUsage(BaseModel):
 # ---------------------------------------------------------------------------
 # WebSocket con el navegador
 # ---------------------------------------------------------------------------
+class ListenRequest(BaseModel):
+    """Petición del navegador para encender o apagar "Oye Nova".
+
+    Attributes:
+        type: Discriminador de la petición.
+        enabled: Si el micrófono debe quedar escuchando.
+    """
+
+    type: Literal["listen"] = "listen"
+    enabled: bool
+
+
+class MicGateRequest(BaseModel):
+    """Aviso del navegador de si se puede escuchar: mientras Nova habla, no.
+
+    Attributes:
+        type: Discriminador de la petición.
+        open: Si se puede escuchar ahora.
+        camera_on: Si la cámara está encendida, para el turno que se inicie por voz.
+    """
+
+    type: Literal["mic_gate"] = "mic_gate"
+    open: bool
+    camera_on: bool = False
+
+
 class UsageRequest(BaseModel):
     """Petición del navegador para ver los gastos de las APIs.
 
@@ -646,6 +672,30 @@ class UsageEvent(BaseModel):
     voice: VoiceQuota | None = None
 
 
+class ListenStateEvent(BaseModel):
+    """En qué va la escucha de "Oye Nova".
+
+    Attributes:
+        type: Discriminador del evento.
+        state: Apagada, cargando, esperando la frase, oyendo, transcribiendo o con error.
+    """
+
+    type: Literal["listen_state"] = "listen_state"
+    state: Literal["off", "loading", "waiting", "hearing", "transcribing", "error"]
+
+
+class HeardEvent(BaseModel):
+    """Lo que Carlos dijo después de "Oye Nova"; empieza un turno.
+
+    Attributes:
+        type: Discriminador del evento.
+        text: Petición transcrita.
+    """
+
+    type: Literal["heard"] = "heard"
+    text: str
+
+
 class SearchStartEvent(BaseModel):
     """Aviso de que Nova empezó a buscar en internet.
 
@@ -804,6 +854,8 @@ ServerEvent = (
     | EmotionEvent
     | PhotoRequestEvent
     | UsageEvent
+    | ListenStateEvent
+    | HeardEvent
     | SearchStartEvent
     | SearchDoneEvent
     | GestureReactionEvent
@@ -822,6 +874,8 @@ CLIENT_REQUEST = TypeAdapter(
         | GestureRequest
         | BrainRequest
         | UsageRequest
+        | ListenRequest
+        | MicGateRequest
         | ForgetMemoryRequest,
         Field(discriminator="type"),
     ]

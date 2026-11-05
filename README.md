@@ -17,4 +17,12 @@ Compañera de IA personal con voz, emociones, memoria, cámara y búsqueda en in
    `TURSO_AUTH_TOKEN` si quieres sincronizar la memoria.
 3. Ejecuta `./start.sh` y abre http://localhost:5173.
 
+## App de escritorio
+1. Coloca en `data/models/` el modelo de Vosk `vosk-model-small-es-0.42` y, en `data/models/whisper/`,
+   el de Whisper `ggml-base.bin`.
+2. Instala Electron: `npm --prefix desktop install`, y si tu npm bloquea scripts,
+   `node desktop/node_modules/electron/install.js`.
+3. Compila la interfaz: `npm --prefix frontend run build`.
+4. Abre la app: `npm --prefix desktop start`. Para hablarle, enciende el botón "Oye Nova".
+
 Nunca subas `.env` ni `data/`: contienen tus claves y tus conversaciones.

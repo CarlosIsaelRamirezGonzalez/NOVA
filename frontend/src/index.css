@@ -32,3 +32,16 @@ body {
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Ventana flotante: sin fondo, y se puede arrastrar desde cualquier parte salvo los botones. */
+html.widget,
+html.widget body {
+  background: transparent;
+}
+
+.widget-drag {
+  -webkit-app-region: drag;
+}
+
+.widget-no-drag {
+  -webkit-app-region: no-drag;
+}

@@ -8,3 +8,7 @@ pyturso==0.8.3
 pygame-ce==2.5.8
 qdrant-client==1.20.0
 fastembed==0.9.1
+vosk==0.3.44
+sounddevice==0.5.6
+pywhispercpp==1.5.1
+numpy==2.5.4

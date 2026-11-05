@@ -2,6 +2,13 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.7.0 · 5 de noviembre de 2026 · "Oye Nova" y app de escritorio
+- "Oye Nova": Vosk detecta la frase y Whisper transcribe la petición, todo dentro de la Mac.
+- Ventana flotante transparente con icono en la barra de menú, hecha con Electron.
+- Opción para abrir Nova al iniciar sesión, apagada por defecto.
+- El micrófono se cierra mientras Nova responde, y se apaga si no hay ninguna pantalla abierta.
+- Falta probarlo con voz y micrófono reales: las pruebas usaron audio generado.
+
 ## v0.6.0 · 5 de noviembre de 2026 · Memoria en la nube y ahorro de voz
 - La memoria se guarda en una copia local que se sincroniza con Turso cada 30 segundos.
 - Olvidar sobrescribe el texto, lo borra de la nube y rehace la copia local.

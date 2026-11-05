@@ -25,6 +25,8 @@ class Config(BaseSettings):
         synced_memory_path: Copia local de la memoria sincronizada con la nube.
         vector_path: Carpeta del índice de Qdrant; se puede reconstruir desde la memoria.
         models_path: Carpeta del modelo local de embeddings.
+        wake_model_path: Modelo de Vosk que detecta "Oye Nova".
+        whisper_model_path: Modelo de Whisper que transcribe las peticiones.
         vault_path: Bóveda de Obsidian que se genera desde la memoria.
     """
 
@@ -45,6 +47,8 @@ class Config(BaseSettings):
     synced_memory_path: Path = Path(__file__).with_name("data") / "nova_synced.db"
     vector_path: Path = Path(__file__).with_name("data") / "qdrant"
     models_path: Path = Path(__file__).with_name("data") / "models"
+    wake_model_path: Path = Path(__file__).with_name("data") / "models" / "vosk-model-small-es-0.42"
+    whisper_model_path: Path = Path(__file__).with_name("data") / "models" / "whisper" / "ggml-base.bin"
     vault_path: Path = Path(__file__).with_name("data") / "obsidian"
 
     @property

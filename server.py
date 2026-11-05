@@ -6,6 +6,7 @@ Uso: `python server.py`
 import asyncio
 import time
 import traceback
+from pathlib import Path
 import uuid
 from collections.abc import AsyncIterator
 
@@ -50,9 +51,14 @@ from services.schemas import (
     SearchDoneEvent,
     SearchStartEvent,
     ServerEvent,
+    ListenRequest,
+    ListenStateEvent,
+    HeardEvent,
+    MicGateRequest,
     UsageRequest,
     TokenEvent,
 )
+from services.voice.listening_service import ListeningService, ListenState
 from services.voice.tts_service import TTSService
 
 HOST = "127.0.0.1"
@@ -63,7 +69,16 @@ HEARTBEAT_SECONDS = 30
 PHOTO_TIMEOUT_SECONDS = 10
 GESTURE_COOLDOWN_SECONDS = 30
 HISTORY_MESSAGES_SHOWN = 60
-ALLOWED_ORIGINS = frozenset({"http://localhost:5173", "http://127.0.0.1:5173"})
+ALLOWED_ORIGINS = frozenset(
+    {
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        f"http://localhost:{PORT}",
+        f"http://{HOST}:{PORT}",
+    }
+)
+# La interfaz ya compilada, para que la app de escritorio no dependa de Vite.
+FRONTEND_DIST = Path(__file__).with_name("frontend") / "dist"
 
 # Estos textos van en español porque el usuario los lee en la interfaz.
 TURN_FAILED_MESSAGE = "No pude responder. Revisa la terminal del servidor."
@@ -108,6 +123,16 @@ class NovaServer:
         self.pending_photo_id: str | None = None
         self.pending_photo: asyncio.Future[str | None] | None = None
         self.last_gesture_at: float | None = None
+        self.listening = ListeningService(
+            config.wake_model_path,
+            config.whisper_model_path,
+            self._on_listen_state,
+            self._on_heard,
+        )
+        self.listening_socket: web.WebSocketResponse | None = None
+        self.listening_camera_on = False
+        self.voice_turn: asyncio.Task[None] | None = None
+        self.loop: asyncio.AbstractEventLoop | None = None
 
     async def http_session_lifecycle(self, _app: web.Application) -> AsyncIterator[None]:
         """Abre la sesión HTTP al arrancar y la cierra al apagar.
@@ -119,11 +144,13 @@ class NovaServer:
             El control mientras el servidor está en marcha.
         """
         self.session = create_http_session()
+        self.loop = asyncio.get_running_loop()
 
         # El modelo tarda en cargar: se hace aparte para no retrasar el arranque.
         opening = asyncio.create_task(self.memory.open())
         syncing = asyncio.create_task(self._keep_synced())
         yield
+        await asyncio.to_thread(self.listening.stop)
         syncing.cancel()
         await asyncio.gather(syncing, return_exceptions=True)
         await opening
@@ -176,6 +203,14 @@ class NovaServer:
                 if isinstance(client_request, BrainRequest):
                     await self._send(socket, await self.memory.build_brain())
                     continue
+                # Encender y apagar el micrófono no depende de la conversación.
+                if isinstance(client_request, ListenRequest):
+                    await self._set_listening(socket, client_request.enabled)
+                    continue
+                if isinstance(client_request, MicGateRequest):
+                    self.listening.set_gate(client_request.open)
+                    self.listening_camera_on = client_request.camera_on
+                    continue
                 if isinstance(client_request, UsageRequest):
                     quota = await self.agent.tts.quota(self.session)
                     await self._send(socket, self.usage.report(quota))
@@ -194,7 +229,7 @@ class NovaServer:
 
                 # Interrumpir también se atiende en pleno turno: precisamente lo detiene.
                 if isinstance(client_request, InterruptRequest):
-                    await self._interrupt(socket, turn)
+                    await self._interrupt(socket, turn if turn and not turn.done() else self.voice_turn)
                     continue
 
                 # El resto de peticiones requiere que no haya otro turno en curso.
@@ -225,11 +260,75 @@ class NovaServer:
                 await asyncio.sleep(0)
         finally:
             self.sockets.discard(socket)
+
+            # Sin pantalla a la que responder, el micrófono no se queda abierto.
+            if socket is self.listening_socket:
+                await self._set_listening(socket, False)
+                if self.voice_turn and not self.voice_turn.done():
+                    self.voice_turn.cancel()
+                    await asyncio.gather(self.voice_turn, return_exceptions=True)
+
             # Si el usuario se fue a mitad de respuesta, no se sigue gastando en la API.
             if turn and not turn.done():
                 turn.cancel()
                 await asyncio.gather(turn, return_exceptions=True)
         return socket
+
+    async def _set_listening(self, socket: web.WebSocketResponse, enabled: bool) -> None:
+        """Enciende o apaga "Oye Nova", sin trabar el servidor mientras se abre el micrófono.
+
+        Args:
+            socket: Pantalla que lo pidió; a ella se responde lo que se oiga.
+            enabled: Si debe quedar escuchando.
+        """
+        if enabled:
+            self.listening_socket = socket
+            self.listening.set_gate(True)
+            self.listening.start()
+        else:
+            self.listening_socket = None
+            await asyncio.to_thread(self.listening.stop)
+            print("[Listen] microphone off", flush=True)
+
+    def _on_listen_state(self, state: ListenState) -> None:
+        """Recibe un cambio de estado desde el hilo del micrófono y lo pasa a las pantallas.
+
+        Args:
+            state: Estado nuevo.
+        """
+        print(f"[Listen] {state}", flush=True)
+        if self.loop:
+            event = ListenStateEvent(state=state)
+            asyncio.run_coroutine_threadsafe(self._broadcast(event), self.loop)
+
+    def _on_heard(self, text: str) -> None:
+        """Recibe una petición desde el hilo del micrófono y la lleva al hilo principal.
+
+        Args:
+            text: Petición transcrita.
+        """
+        if self.loop:
+            self.loop.call_soon_threadsafe(self._start_voice_turn, text)
+
+    def _start_voice_turn(self, text: str) -> None:
+        """Inicia un turno con lo que se oyó, si Nova está libre.
+
+        Args:
+            text: Petición transcrita.
+        """
+        socket = self.listening_socket
+        if socket is None or socket.closed or self.turn_lock.locked():
+            print("[Listen] ignored: Nova is busy or no screen is open", flush=True)
+            return
+
+        async def run() -> None:
+            """Muestra lo que se oyó y responde."""
+            await self._send(socket, HeardEvent(text=text))
+            await self._run_turn(socket, text, self.listening_camera_on)
+
+        # Se cierra el paso de audio de inmediato: su propia voz no debe volver a entrar.
+        self.listening.set_gate(False)
+        self.voice_turn = asyncio.create_task(run())
 
     async def _broadcast(self, event: ServerEvent) -> None:
         """Envía un evento a todas las pantallas abiertas.
@@ -497,6 +596,24 @@ def create_app() -> web.Application:
     server = NovaServer(Config())
     app = web.Application()
     app.router.add_get("/ws", server.handle_websocket)
+
+    # Sirve la interfaz compilada para la app de escritorio; en desarrollo la sirve Vite.
+    if FRONTEND_DIST.is_dir():
+
+        async def index(_request: web.Request) -> web.FileResponse:
+            """Entrega la página principal.
+
+            Args:
+                _request: Petición del navegador.
+
+            Returns:
+                El archivo de la interfaz.
+            """
+            return web.FileResponse(FRONTEND_DIST / "index.html")
+
+        app.router.add_get("/", index)
+        app.router.add_static("/", FRONTEND_DIST)
+
     app.cleanup_ctx.append(server.http_session_lifecycle)
     return app
 

@@ -27,7 +27,8 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | 11. Cambiar de cerebro | `v0.5.0` | Misma frase con la voz nueva | Migrar expuso qué dependía del modelo anterior |
 | 12. Cuentas claras | `v0.5.0` | La vista de gastos | Qué cuesta de verdad tener una IA personal |
 | 13. Memoria en la nube | `v0.6.0` | La misma memoria comprobada en otra copia | "Olvidar" no borraba de verdad, y se corrigió |
-| 14. Lo que sigue | Próxima | Decir "Oye Nova" | App en la Mac con palabra de activación |
+| 14. Sale del navegador | `v0.7.0` | Nova flotando en el escritorio | La primera versión de la frase se activaba casi con cualquier cosa |
+| 15. Llamarla por su nombre | `v0.7.0` | Decir "Oye Nova" desde otra app | Nada del audio sale de la Mac; solo viaja el texto |
 
 ## Decisiones y por qué
 | Decisión | Alternativa | Motivo |
@@ -40,6 +41,8 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | Haiku 5.5 sin razonamiento | Modelos que razonan | En conversación en vivo importa empezar a hablar pronto |
 | Turso | Otra base en la nube | Compatible con SQLite y con plan gratis |
 | Vosk con palabras parecidas para "Oye Nova" | Solo la frase | Solo la frase se activaba por error casi siempre |
+| Whisper local para transcribir | Servicio de pago | Sin costo y sin mandar audio a internet |
+| Electron | Tauri | Sin instalar Rust, y usa el mismo Chromium donde ya se probó la animación |
 
 ## Cifras para contar
 | Qué se midió | Resultado |
@@ -52,6 +55,8 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | Una explicación: palabras antes y después | 353 a 180 con Grok; 99 con Haiku |
 | "Oye Nova" solo con la frase | 10 de 10 detectadas, 14 de 18 falsas |
 | "Oye Nova" con palabras parecidas | 10 de 10 detectadas, 1 a 2 de 18 falsas |
+| "Oye Nova" y Whisper juntos | 2 de 18 falsas llegaban a Whisper, y las dos se descartaron sin gastar turno |
+| Transcripción local con Whisper | Unos 0.1 s por frase corta, después de la carga inicial |
 | Costo por turno con Haiku | Unos $0.002 de Claude; una búsqueda, unos $0.012 |
 | Plan de voz | $22 al mes, unos 485 turnos |
 

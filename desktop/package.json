@@ -1,0 +1,13 @@
+{
+  "name": "nova-desktop",
+  "version": "0.7.0",
+  "private": true,
+  "description": "Nova en una ventana flotante de macOS",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "45.2.3"
+  }
+}

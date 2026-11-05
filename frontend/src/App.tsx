@@ -6,7 +6,7 @@ import { NovaSprite } from './components/NovaSprite'
 import { UsageView } from './components/UsageView'
 import { useCamera } from './hooks/useCamera'
 import { useDictation } from './hooks/useDictation'
-import { useNova } from './hooks/useNova'
+import { useNova, type ListenState } from './hooks/useNova'
 import { describeBlend, type Activity, type EmotionBlend } from './nova/emotions'
 import type { Gesture } from './nova/gestures'
 
@@ -33,6 +33,19 @@ function SearchNote({ query, sources = [] }: { query: string; sources?: string[]
       ))}
     </p>
   )
+}
+
+/** Si esta ventana es la flotante de la app de escritorio. */
+const IS_WIDGET = new URLSearchParams(location.search).has('widget')
+
+/** Texto del botón de "Oye Nova" según lo que esté pasando. */
+const LISTEN_LABELS: Record<ListenState, string> = {
+  off: 'Oye Nova: apagado',
+  loading: 'Preparando…',
+  waiting: 'Di "Oye Nova"',
+  hearing: 'Te escucho…',
+  transcribing: 'Entendiendo…',
+  error: 'Micrófono sin permiso',
 }
 
 /** Texto del estado según lo que está haciendo Nova. */
@@ -109,6 +122,9 @@ export default function App() {
     requestBrain,
     usage,
     requestUsage,
+    listenEnabled,
+    listenState,
+    toggleListening,
     forgetMemory,
     unlockAudio,
     getLevel,
@@ -127,8 +143,12 @@ export default function App() {
   // La actividad del personaje combina la fase del turno con lo que hace el usuario.
   const activity: Activity = webSearch !== 'none'
     ? webSearch
-    : phase !== 'idle'
-      ? phase : dictation.listening || draft ? 'listening' : 'idle'
+    : listenState === 'transcribing'
+      ? 'thinking'
+      : listenState === 'hearing'
+        ? 'listening'
+        : phase !== 'idle'
+          ? phase : dictation.listening || draft ? 'listening' : 'idle'
 
   // Nova solo reacciona a un gesto si no está ocupada respondiendo.
   useEffect(() => {
@@ -137,7 +157,16 @@ export default function App() {
     }
   })
 
-  const notice = error ?? dictation.micError ?? camera.cameraError
+  const listenError =
+    listenState === 'error'
+      ? 'No pude abrir el micrófono. Revisa Ajustes del Sistema > Privacidad y seguridad > Micrófono.'
+      : null
+  const notice = error ?? listenError ?? dictation.micError ?? camera.cameraError
+
+  // En la ventana flotante, el fondo es transparente para que Nova flote sobre el escritorio.
+  useEffect(() => {
+    document.documentElement.classList.toggle('widget', IS_WIDGET)
+  }, [])
 
   // Con los gastos abiertos, los actualiza cuando Nova termina de responder.
   useEffect(() => {
@@ -169,6 +198,71 @@ export default function App() {
     addEventListener('keydown', onKeyDown)
     return () => removeEventListener('keydown', onKeyDown)
   }, [busy, interrupt])
+
+  const listenButton = (
+    <button
+      type="button"
+      onClick={() => void toggleListening()}
+      aria-pressed={listenEnabled}
+      className={`flex items-center gap-2 rounded-full border px-3 py-1 font-pixel text-sm outline-none focus-visible:border-glow ${
+        listenEnabled ? 'border-glow text-cream' : 'border-line text-muted hover:bg-panel'
+      }`}
+    >
+      {/* El punto indica que el micrófono está abierto */}
+      {listenEnabled && <span className="size-2 rounded-full bg-glow" aria-hidden />}
+      {LISTEN_LABELS[listenState]}
+    </button>
+  )
+
+  // La ventana flotante solo muestra a Nova, su estado y lo último que dijo.
+  if (IS_WIDGET) {
+    const lastReply = messages.filter((message) => message.role === 'nova').at(-1)
+    return (
+      <main className="widget-drag flex h-dvh flex-col items-center overflow-hidden px-2 pb-2">
+        <div className="min-h-0 w-full flex-1">
+          <NovaSprite
+            blend={combineBlends(blend, camera.reflex)}
+            activity={activity}
+            lookAtInput={false}
+            calmCount={calmCount}
+            photoCount={photoCount}
+            interruptCount={interruptCount}
+            getFace={camera.getFace}
+            getLevel={getLevel}
+          />
+        </div>
+        {busy && lastReply && (
+          <p aria-live="polite" className="mb-1 line-clamp-3 rounded-lg bg-night/80 px-2 py-1 text-center text-xs">
+            {stripMarkup(lastReply.text)}
+          </p>
+        )}
+        {notice && (
+          <p role="alert" className="mb-1 rounded-lg bg-night/90 px-2 py-1 text-center text-xs text-alert">
+            {notice}
+          </p>
+        )}
+        <div className="widget-no-drag flex flex-wrap items-center justify-center gap-1 rounded-full bg-night/80 p-1">
+          {listenButton}
+          {busy && (
+            <button
+              type="button"
+              onClick={interrupt}
+              className="rounded-full border border-line px-3 py-1 font-pixel text-sm text-cream outline-none hover:bg-panel focus-visible:border-glow"
+            >
+              Parar
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => window.open('/', 'nova-full')}
+            className="rounded-full border border-line px-3 py-1 font-pixel text-sm text-cream outline-none hover:bg-panel focus-visible:border-glow"
+          >
+            Abrir
+          </button>
+        </div>
+      </main>
+    )
+  }
 
   return (
     <main className="mx-auto flex h-dvh max-w-2xl flex-col px-4 pb-4">
@@ -216,6 +310,9 @@ export default function App() {
                 ? 'Esperando permiso…'
                 : 'Cámara'}
           </button>
+
+          {/* Enciende o apaga la escucha de "Oye Nova" */}
+          {listenButton}
 
           {/* Abre la vista de su memoria */}
           <button
