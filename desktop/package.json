@@ -1,6 +1,6 @@
 {
   "name": "nova-desktop",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "private": true,
   "description": "Nova en una ventana flotante de macOS",
   "main": "main.cjs",

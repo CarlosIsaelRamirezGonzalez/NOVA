@@ -28,7 +28,8 @@ const WANDER_AFTER_SECONDS = 4
 const SPIN_SECONDS = 1.15
 // El saludo: alza una mano y la mueve de lado a lado.
 const WAVE_SECONDS = 2.4
-const WAVE_ARM = 2.3
+// Lo bastante baja para que la mano salga al lado del casco, en vez de quedar detrás.
+const WAVE_ARM = 1.8
 // A partir de este rumbo se ve de espaldas: unos 30 grados alrededor de ir recto hacia arriba.
 const BACK_VIEW_ANGLE = 2.6
 // Baila si la alegría o la sorpresa llegan a este nivel de golpe; una buena noticia común no basta.
@@ -692,7 +693,7 @@ export function stepNova(state: NovaState, input: NovaInput) {
   // Al bailar, cada brazo sube y baja a contratiempo del otro.
   const danceWave = isDancing ? Math.sin(beat) * 0.6 : 0
   state.waveTimer = Math.max(0, state.waveTimer - dt)
-  const waveGoal = state.waveTimer > 0 && !held ? WAVE_ARM + Math.sin(state.time * 11) * 0.38 : null
+  const waveGoal = state.waveTimer > 0 && !held ? WAVE_ARM + Math.sin(state.time * 11) * 0.35 : null
   const gesture = activity === 'speaking' ? Math.sin(state.time * 5.5) * 0.28 * (0.3 + state.level) : 0
   const stiffness = 62
   const damping = 9
