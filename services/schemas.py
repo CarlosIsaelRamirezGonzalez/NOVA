@@ -51,6 +51,8 @@ MovePlace = Literal[
     "stay",
     "roam",
     "hide",
+    "spin",
+    "show_back",
 ]
 TypingStatus = Literal["written", "stopped", "app_changed", "secure_field"]
 WriteStatus = (
@@ -179,7 +181,8 @@ class MoveArguments(BaseModel):
     """Argumentos con los que el modelo pide moverse por la pantalla.
 
     Attributes:
-        place: A dónde ir, o `stay`, `roam` y `hide` para quedarse, pasear u ocultarse.
+        place: A dónde ir, o `stay`, `roam`, `hide`, `spin` y `show_back` para quedarse, pasear,
+            ocultarse, dar una vuelta completa o enseñar la espalda.
     """
 
     place: MovePlace

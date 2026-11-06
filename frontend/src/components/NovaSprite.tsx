@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { describeBlend, type Activity, type EmotionBlend } from '../nova/emotions'
-import { CANVAS_SIZE, createNovaState, flinch, poke, soothe, stepNova } from '../nova/novaState'
+import { CANVAS_SIZE, createNovaState, flinch, poke, soothe, stepNova, showBack, startSpin } from '../nova/novaState'
 import { PixelBuffer } from '../nova/pixelBuffer'
 import { renderNova } from '../nova/renderNova'
 
@@ -23,6 +23,8 @@ const DRAG_THRESHOLD_PX = 4
 
 /** Funciones de la app de escritorio para mover la ventana; en el navegador no existen. */
 type DragBridge = {
+  pauseWander?: (reason: string, paused: boolean) => void
+  onPose?: (handler: (pose: string) => void) => () => void
   onTravel?: (handler: (vx: number, vy: number, headingX: number, headingY: number) => void) => () => void
   startDrag: (screenX: number, screenY: number) => void
   moveDrag: (screenX: number, screenY: number) => void
@@ -81,6 +83,7 @@ export function NovaSprite({
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
     let pointer: { x: number; y: number } | null = null
     let pokedUntil = 0
+    let wasDancing = false
     let handledCalmCount = latest.current.calmCount
     let handledPhotoCount = latest.current.photoCount
     let handledInterruptCount = latest.current.interruptCount
@@ -165,6 +168,10 @@ export function NovaSprite({
       grab.vy = vy
       grab.heading = headingX || headingY ? { x: headingX, y: headingY } : null
     })
+    const stopPose = dragBridge?.onPose?.((pose) => {
+      if (pose === 'spin') startSpin(state)
+      if (pose === 'show_back') showBack(state)
+    })
     addEventListener('pointermove', onPointerMove)
     element.addEventListener('pointerdown', onPointerDown)
     element.addEventListener('pointermove', onDragMove)
@@ -211,12 +218,24 @@ export function NovaSprite({
         blend: grab.held ? GRAB_BLEND : now < pokedUntil ? POKE_BLEND : current.blend,
         // Si el cursor se detiene, ya no llegan eventos: la velocidad se apaga sola.
         grab,
+        // Con el ánimo real: la sorpresa de un clic o de cargarla no cuenta para bailar.
+        excitement: Math.max(
+          0,
+          ...current.blend
+            .filter((item) => item.name === 'happy' || item.name === 'surprised')
+            .map((item) => item.intensity),
+        ),
         activity: current.activity,
         level: Math.min(1, Math.max(0, (getLevel() - SILENCE) * SENSITIVITY)),
         pointer: gazeTarget,
         lookAtInput: current.lookAtInput,
         reducedMotion,
       })
+      // Mientras baila no se va paseando.
+      if ((state.dance >= 0) !== wasDancing) {
+        wasDancing = state.dance >= 0
+        dragBridge?.pauseWander?.('dance', wasDancing)
+      }
       renderNova(buffer, state)
 
       // Sin movimientos nuevos, la velocidad cae a cero para que no se quede inclinada.
@@ -237,6 +256,7 @@ export function NovaSprite({
       cancelAnimationFrame(frame)
       observer.disconnect()
       stopTravel?.()
+      stopPose?.()
       removeEventListener('pointermove', onPointerMove)
       element.removeEventListener('pointerdown', onPointerDown)
       element.removeEventListener('pointermove', onDragMove)

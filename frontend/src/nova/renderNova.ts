@@ -35,6 +35,7 @@ const SWEAT = ['  #  ', ' ### ', '#####', '#####', ' ### ']
 const TANGLE = [' ###### ', '# ##  ##', '##  ## #', ' ## ### ', '  ####  ']
 const SCRIBBLE = [' ## # ', '#  # #', ' # ## ', '#  #  ']
 const MAGNIFIER = ['  ###  ', ' #   # ', ' #   # ', ' #   # ', '  ###  ', '     # ', '      #']
+const NOTE = ['  ## ', '  # #', '  #  ', '  #  ', '###  ', '###  ']
 const QUESTION = [' ### ', '#   #', '    #', '  ## ', '  #  ', '     ', '  #  ']
 
 // La cabeza y el cuerpo se dibujan como si fueran redondos: al girar, todo se recorre sobre ellos.
@@ -43,8 +44,10 @@ const BODY_RADIUS = 11
 const VISOR_ANGLE = 1.05
 // Los ojos y la gema giran menos que el casco: si no, se pegan a la orilla y la cara se pierde.
 const FACE_TURN = 0.8
-// El audífono va detrás de la mitad de la cabeza: de frente no se ve, y de perfil queda en la nuca.
-const EAR_ANGLE = Math.PI / 2 + 0.35
+// Si el visor se ve más angosto que esto, ya quedó del otro lado de la cabeza.
+const MIN_VISOR_HALF = 2.5
+// A partir de aquí se le ve la nuca: las llamas pasan por delante del casco.
+const BACK_VIEW_FACING = -0.8
 const EYE_ANGLE = 0.39
 const SHOULDER_ANGLE = 1.2
 // Por debajo de este ancho aparente, una parte ya quedó del otro lado y no se dibuja.
@@ -62,8 +65,16 @@ const onRound = (radius: number, angle: number) => ({
   facing: Math.cos(angle),
 })
 
-/** Qué tan de perfil está un giro, de 0 a 1. */
-const profileAmount = (yaw: number) => Math.min(1, Math.abs(yaw) / MAX_YAW)
+/**
+ * Lleva un giro al rango de -PI a PI, sin importar cuántas vueltas haya dado.
+ *
+ * @param yaw - Giro en radianes.
+ * @returns El mismo giro, dentro del rango.
+ */
+const wrapYaw = (yaw: number) => Math.atan2(Math.sin(yaw), Math.cos(yaw))
+
+/** Qué tan de perfil está un giro, de 0 a 1; de frente y de espaldas es 0. */
+const profileAmount = (yaw: number) => Math.min(1, Math.abs(Math.sin(yaw)) / Math.sin(MAX_YAW))
 
 /** Forma y movimiento de una llama individual. */
 type Petal = {
@@ -105,7 +116,7 @@ function petalPoint(petal: Petal, scale: number, state: NovaState, hx: number, h
   const { pose, hairPhase } = state
   const length = petal.length * scale * pose.hairLength * (1 + state.level * 0.14)
   // Al girar, las llamas se van hacia la nuca y el viento las empuja contra su movimiento.
-  const angle = petal.angle - state.headYaw * 0.3
+  const angle = petal.angle - Math.sin(state.headYaw) * 0.33
   const dirX = Math.sin(angle) * (1 - profileAmount(state.headYaw) * 0.12)
   const dirY = -Math.cos(angle)
   const sideX = Math.cos(angle)
@@ -259,7 +270,7 @@ function drawBody(buffer: PixelBuffer, state: NovaState, cx: number, top: number
   const height = Math.round(47 * state.bodyStretch)
   const yaw = state.bodyYaw
   const turned = profileAmount(yaw)
-  const direction = Math.sign(yaw)
+  const direction = Math.sign(Math.sin(yaw))
   for (let row = 0; row <= height; row++) {
     // Ancho de la fila: hombros, vientre y luego la cola, que se afina hasta la punta.
     const t = row / height
@@ -300,6 +311,13 @@ function drawBody(buffer: PixelBuffer, state: NovaState, cx: number, top: number
       if (point.facing > MIN_VISIBLE) buffer.set(cx + point.x, top + 6 + row, CHEST)
     }
   })
+
+  // La espalda lleva una costura que baja desde los hombros y gira con el cuerpo.
+  const spine = onRound(BODY_RADIUS, yaw - Math.PI)
+  if (spine.facing > MIN_VISIBLE) {
+    const seamEnd = Math.round(height * 0.42)
+    for (let row = 2; row <= seamEnd; row++) buffer.set(cx + spine.x, top + row, row % 7 === 0 ? WHITE_SOFT : LAVENDER)
+  }
 }
 
 /**
@@ -327,8 +345,10 @@ function drawArm(
   const reach = 15 - lift
   const steps = 18
   const turned = profileAmount(yaw)
-  const pointing = side * (1 - turned) + Math.sign(yaw) * turned
-  const shoulderX = cx + onRound(BODY_RADIUS, side * SHOULDER_ANGLE + yaw).x
+  const shoulder = onRound(BODY_RADIUS, side * SHOULDER_ANGLE + yaw).x
+  // De espaldas, cada brazo sale del lado donde quedó su hombro; de perfil, apunta hacia el frente.
+  const pointing = Math.sign(shoulder) * (1 - turned) + Math.sign(Math.sin(yaw)) * turned
+  const shoulderX = cx + shoulder
   const shoulderY = cy + 4
   const point = (s: number) => ({
     x: shoulderX + pointing * Math.sin(angle) * reach * s,
@@ -453,39 +473,33 @@ function drawEye(
 }
 
 /**
- * Dibuja un audífono del casco, con su aleta hacia atrás y una luz que late con la voz.
+ * Dibuja la parte de atrás del casco. Son marcas planas: no sobresalen de su silueta.
  *
  * @param buffer - Lienzo de destino.
- * @param state - Estado de la animación.
  * @param hx - Columna de la cabeza.
  * @param hy - Fila de la cabeza.
- * @param side - Lado de la cabeza: -1 izquierdo, 1 derecho.
+ * @param yaw - Giro de la cabeza.
  */
-function drawEarPod(buffer: PixelBuffer, state: NovaState, hx: number, hy: number, side: -1 | 1) {
-  const yaw = state.headYaw
-  const pod = onRound(HEAD_RADIUS, side * EAR_ANGLE + yaw)
-  if (pod.facing <= 0.12) return
+function drawHelmetBack(buffer: PixelBuffer, hx: number, hy: number, yaw: number) {
+  const center = onRound(HEAD_RADIUS - 2, yaw - Math.PI)
+  if (center.facing <= MIN_VISIBLE) return
 
-  const x = hx + pod.x
-  const halfWidth = Math.max(1.5, 4.5 * pod.facing)
-
-  // La aleta sale hacia la nuca, contraria a donde está volteando.
-  const back = -Math.sign(yaw)
-  for (let i = 0; i <= 8; i++) {
-    const fin = i / 8
-    const thickness = 2.6 * (1 - fin)
-    buffer.disc(x + back * (halfWidth + fin * 7), hy - 6 - fin * 7, thickness + 1, OUTLINE)
-  }
-  for (let i = 0; i <= 8; i++) {
-    const fin = i / 8
-    const thickness = 2.6 * (1 - fin)
-    buffer.disc(x + back * (halfWidth + fin * 7), hy - 6 - fin * 7, thickness, LAVENDER_DARK)
+  // Costura vertical, con un sombreado a un lado que le da relieve.
+  const x = hx + center.x
+  for (let dy = -15; dy <= 15; dy++) {
+    buffer.set(x, hy + dy, LAVENDER)
+    buffer.set(x + 1, hy + dy, WHITE_SOFT)
   }
 
-  buffer.rounded(x, hy, halfWidth + 1, 6.5, 2.2, OUTLINE)
-  buffer.rounded(x, hy, halfWidth, 5.5, 2.2, LAVENDER)
-  const glow = pack(mix(state.pose.ramp.deep, state.pose.ramp.core, state.level))
-  buffer.rounded(x, hy, Math.max(1, halfWidth - 2), 2.6, 2, glow)
+  // Dos ranuras a cada lado de la costura, en la parte baja de la nuca.
+  for (const row of [8, 12]) {
+    for (let step = 3; step <= 9; step++) {
+      for (const side of [-1, 1]) {
+        const slot = onRound(HEAD_RADIUS - 2, yaw - Math.PI + (side * step) / HEAD_RADIUS)
+        if (slot.facing > MIN_VISIBLE) buffer.set(hx + slot.x, hy + row, LAVENDER_DARK)
+      }
+    }
+  }
 }
 
 /**
@@ -501,9 +515,9 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
   const outerColor = pack(pose.eyeOuter)
   const innerColor = pack(pose.eyeInner)
 
-  const yaw = state.headYaw
+  const yaw = wrapYaw(state.headYaw)
   const turned = profileAmount(yaw)
-  const direction = Math.sign(yaw)
+  const direction = Math.sign(Math.sin(yaw))
 
   // Casco: contorno y tres tonos. Al girar se angosta y la luz se va hacia la cara, dejando la nuca
   // en sombra.
@@ -514,17 +528,19 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
   buffer.rounded(hx - 0.6 + light, hy - 0.8, 21.4 - narrow, 19.3, 2.45, WHITE_SOFT)
   buffer.rounded(hx - 1 + light * 1.4, hy - 1.3, 20 - narrow, 18, 2.45, WHITE)
 
-  // Audífonos a los lados del casco: de frente apenas asoman, de perfil se ven completos.
-  for (const side of [-1, 1] as const) {
-    drawEarPod(buffer, state, hx, hy, side)
-  }
+  // Nuca: una costura y dos ranuras planas, que giran con el casco.
+  drawHelmetBack(buffer, hx, hy, yaw)
 
   // Visor oscuro, recorrido hacia donde mira; llega hasta la orilla del casco y no más.
   const helmetEdge = 19.8 - narrow
-  const visorFrom = Math.max(-helmetEdge, onRound(HEAD_RADIUS, Math.max(-Math.PI / 2, yaw - VISOR_ANGLE)).x)
-  const visorTo = Math.min(helmetEdge, onRound(HEAD_RADIUS, Math.min(Math.PI / 2, yaw + VISOR_ANGLE)).x)
+  const visorFrom = Math.max(-helmetEdge, onRound(HEAD_RADIUS, Math.max(-Math.PI / 2, Math.min(Math.PI / 2, yaw - VISOR_ANGLE))).x)
+  const visorTo = Math.min(helmetEdge, onRound(HEAD_RADIUS, Math.max(-Math.PI / 2, Math.min(Math.PI / 2, yaw + VISOR_ANGLE))).x)
   const visorX = hx + (visorFrom + visorTo) / 2
   const visorHalf = (visorTo - visorFrom) / 2
+
+  // De espaldas no hay cara que dibujar.
+  if (visorHalf < MIN_VISOR_HALF) return
+
   buffer.rounded(visorX, hy + 1, visorHalf, 14.5, 2.8, VISOR_EDGE)
   buffer.rounded(visorX, hy + 1, visorHalf - 1, 13.5, 2.8, VISOR)
   const inVisor = (x: number, y: number) =>
@@ -577,6 +593,7 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
 
   // Gema de la frente: brilla más cuando habla.
   const gem = onRound(HEAD_RADIUS - 1, yaw * FACE_TURN)
+  if (gem.facing < MIN_VISIBLE) return
   const gemX = hx + gem.x
   const gemY = hy - 21
   const radius = 6
@@ -589,8 +606,8 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
   // Rombo con contorno; cada cuadrante es una faceta con su propio tono.
   for (let dy = -radius - 1; dy <= radius + 1; dy++) {
     for (let dx = -radius; dx <= radius; dx++) {
-      // De lado, el rombo se angosta porque va pegado a la frente.
-      const shape = (Math.abs(dx) / Math.max(gem.facing, 0.45)) * 1.25 + Math.abs(dy)
+      // De lado se angosta porque va pegado a la frente, pero sin volverse una punta delgada.
+      const shape = (Math.abs(dx) / Math.max(gem.facing, 0.75)) * 1.25 + Math.abs(dy)
       if (shape > radius + 1) continue
       let color = gemDark
       if (shape <= radius) {
@@ -768,6 +785,9 @@ function drawParticle(buffer: PixelBuffer, particle: Particle) {
     case 'question':
       buffer.glyph(QUESTION, x - 2, y - 3, color)
       break
+    case 'note':
+      buffer.glyph(NOTE, x - 2, y - 3, color)
+      break
     case 'scribble':
       buffer.glyph(SCRIBBLE, x - 3, y - 2, color)
       break
@@ -800,12 +820,14 @@ export function renderNova(buffer: PixelBuffer, state: NovaState) {
   // Las capas de Nova comparten el efecto de materializarse al aparecer.
   buffer.reveal = state.appear >= 1 ? 1 : state.appear ** 1.4
   buffer.glow(hx, hy - 10, 68, state.pose.ramp.mid, 0.13 + state.level * 0.2, 9)
-  drawFlames(buffer, state, hx, hy)
+  // De espaldas, las llamas salen de la nuca y quedan por delante del casco.
+  const showsBack = Math.cos(state.headYaw) < BACK_VIEW_FACING
+  if (!showsBack) drawFlames(buffer, state, hx, hy)
   // El brazo que al girar quedó del otro lado se dibuja antes que el cuerpo, para que lo tape.
   const arms = [
     { side: -1 as const, angle: state.armLeft, lift: state.reachLeft },
     { side: 1 as const, angle: state.armRight, lift: state.reachRight },
-  ].map((arm) => ({ ...arm, isFar: onRound(BODY_RADIUS, arm.side * SHOULDER_ANGLE + state.bodyYaw).facing < 0 }))
+  ].map((arm) => ({ ...arm, isFar: onRound(BODY_RADIUS, arm.side * SHOULDER_ANGLE + state.bodyYaw).facing < -0.5 }))
   const drawArms = (isFar: boolean) => {
     for (const arm of arms) {
       if (arm.isFar === isFar) drawArm(buffer, cx, bodyTop, arm.side, arm.angle, arm.lift, state.bodyYaw, isFar)
@@ -816,6 +838,7 @@ export function renderNova(buffer: PixelBuffer, state: NovaState) {
   drawArms(false)
   drawLaptop(buffer, state, cx, bodyTop)
   drawHead(buffer, state, hx, hy)
+  if (showsBack) drawFlames(buffer, state, hx, hy)
   drawSigns(buffer, state, hx, hy)
   buffer.reveal = 1
 

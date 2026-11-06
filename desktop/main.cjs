@@ -23,6 +23,7 @@ const COMMAND_REST_MS = 45_000
 const WANDER_LOOK_AHEAD_MS = 550
 const COMMAND_LOOK_AHEAD_MS = 160
 const SPEED_UP_MS = 450
+const ARRIVAL_SPIN_CHANCE = 0.15
 // Frena al llegar, en vez de detenerse de golpe.
 const ARRIVAL_EASE_PX = 140
 // Solo se detiene si estás usando el mouse encima de ella: un cursor olvidado no la atrapa.
@@ -39,7 +40,8 @@ let travel = null
 let travelTimer = null
 let wanderEnabled = true
 let nextWanderAt = 0
-let wanderPaused = false
+// Por qué no debe pasear ahora, como la compu abierta o estar bailando.
+const wanderPauses = new Set()
 let lastCursor = { x: 0, y: 0 }
 let lastCursorMoveAt = 0
 
@@ -165,7 +167,7 @@ function stepTravel() {
 
   // Un paseo espera si la estás tocando; lo que le pediste, no.
   const isBlocked = cursorIsBusyOverWidget() && (!travel || travel.isWander)
-  const isPaused = wanderPaused && travel?.isWander !== false
+  const isPaused = wanderPauses.size > 0 && travel?.isWander !== false
   if (isBlocked || isPaused) {
     if (isPaused) travel = null
     sendTravel(0, 0, 0, 0)
@@ -192,6 +194,8 @@ function stepTravel() {
     sendTravel(0, 0, 0, 0)
     savePosition()
     if (travel.isWander) {
+      // A veces, de puro gusto, da una vuelta al llegar.
+      if (Math.random() < ARRIVAL_SPIN_CHANCE) widget.webContents.send('nova-pose', 'spin')
       nextWanderAt = Date.now() + WANDER_REST_MS.min + Math.random() * (WANDER_REST_MS.max - WANDER_REST_MS.min)
     }
     travel = null
@@ -288,6 +292,10 @@ function handleMoveCommand(place) {
   if (!widget) return
   if (place === 'hide') {
     widget.webContents.send('presence-command', 'dismiss')
+    return
+  }
+  if (place === 'spin' || place === 'show_back') {
+    widget.webContents.send('nova-pose', place)
     return
   }
   if (place === 'stay') {
@@ -520,8 +528,9 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   ipcMain.on('move-to', (_event, place) => handleMoveCommand(place))
-  ipcMain.on('pause-wander', (_event, paused) => {
-    wanderPaused = paused
+  ipcMain.on('pause-wander', (_event, reason, paused) => {
+    if (paused) wanderPauses.add(reason)
+    else wanderPauses.delete(reason)
   })
 
   // El permiso del micrófono se pide hasta que enciendes el micrófono.

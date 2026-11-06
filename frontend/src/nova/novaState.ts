@@ -25,9 +25,21 @@ export const MAX_YAW = 1.1
 const APPEAR_SECONDS = 1.5
 const MAX_PARTICLES = 90
 const WANDER_AFTER_SECONDS = 4
+const SPIN_SECONDS = 1.15
+// Baila si la alegría o la sorpresa llegan a este nivel de golpe; una buena noticia común no basta.
+const DANCE_THRESHOLD = 0.7
+const DANCE_JUMP = 0.1
+const DANCE_SECONDS = 3.8
+const DANCE_BEAT = 6.5
+const DANCE_SPIN_AT = 1.5
+const NOTE_COLORS = [hex('#FFE98A'), hex('#6FD3FF'), hex('#F2A7E8')]
+// Cuánto se queda de espaldas si le pides que se voltee.
+const SHOW_BACK_SECONDS = 4
+// El cuerpo se atrasa este tanto respecto a la cabeza mientras da la vuelta.
+const SPIN_BODY_LAG = 0.5
 
 /** Tipos de partícula que puede soltar Nova. */
-type ParticleKind = 'star' | 'dot' | 'drop' | 'ember' | 'question' | 'scribble' | 'steam'
+type ParticleKind = 'star' | 'dot' | 'drop' | 'ember' | 'question' | 'scribble' | 'steam' | 'note'
 
 /** Una partícula en movimiento; `life` se mide en segundos. */
 export type Particle = {
@@ -52,6 +64,8 @@ export type NovaInput = {
   reducedMotion: boolean
   // Si la están cargando, a qué velocidad va en px/s, y hacia dónde se dirige por su cuenta.
   grab: { held: boolean; vx: number; vy: number; heading: { x: number; y: number } | null }
+  isDancing?: boolean // lo decide `stepNova` en cada paso
+  excitement: number // lo más fuerte entre su alegría y su sorpresa de verdad, de 0 a 1
 }
 
 /** Estado completo de la animación; se conserva entre un cuadro y otro. */
@@ -96,9 +110,16 @@ export type NovaState = {
   grabVx: number // velocidad horizontal al arrastrarla, suavizada
   grabVy: number // velocidad vertical al arrastrarla, suavizada
   wasHeld: boolean // si en el paso anterior la estaban cargando
-  headYaw: number // giro de la cabeza, en radianes; positivo hacia la derecha de la pantalla
-  headYawVelocity: number // la cabeza se pasa un poco al voltear, y regresa
-  bodyYaw: number // giro del cuerpo, que sigue a la cabeza con retraso
+  headYaw: number // giro de la cabeza al dibujarla, en radianes; PI es de espaldas
+  bodyYaw: number // giro del cuerpo al dibujarlo, que sigue a la cabeza con retraso
+  faceYaw: number // a dónde apunta la cabeza, sin contar las vueltas que esté dando
+  faceYawVelocity: number // la cabeza se pasa un poco al voltear, y regresa
+  torsoYaw: number // a dónde apunta el cuerpo, sin contar las vueltas
+  spin: number // cuánto lleva de la vuelta completa, en radianes
+  isSpinning: boolean // si está dando una vuelta completa
+  backTimer: number // segundos que le quedan enseñando la espalda
+  dance: number // segundos que lleva bailando; negativo si no está bailando
+  lastExcitement: number // emoción del paso anterior, para notar cuando sube de golpe
   keying: number // qué tan rápido teclea, de 0 a 1; se detiene mientras cuenta lo que encontró
   reachLeft: number // cuánto sube la mano izquierda al teclear, en píxeles
   reachRight: number // cuánto sube la mano derecha al teclear, en píxeles
@@ -152,8 +173,15 @@ export function createNovaState(): NovaState {
     grabVy: 0,
     wasHeld: false,
     headYaw: 0,
-    headYawVelocity: 0,
     bodyYaw: 0,
+    faceYaw: 0,
+    faceYawVelocity: 0,
+    torsoYaw: 0,
+    spin: 0,
+    isSpinning: false,
+    backTimer: 0,
+    dance: -1,
+    lastExcitement: 0,
     typing: 0,
     keying: 0,
     reachLeft: 0,
@@ -379,6 +407,56 @@ export function soothe(state: NovaState) {
 }
 
 /**
+ * Empieza una vuelta completa; si ya está dando una, no la reinicia.
+ *
+ * @param state - Estado de la animación.
+ */
+export function startSpin(state: NovaState) {
+  if (state.isSpinning) return
+  state.isSpinning = true
+  state.spin = 0
+}
+
+/**
+ * Hace que enseñe la espalda unos segundos.
+ *
+ * @param state - Estado de la animación.
+ */
+export function showBack(state: NovaState) {
+  state.backTimer = SHOW_BACK_SECONDS
+}
+
+/**
+ * Calcula el camino más corto entre dos giros.
+ *
+ * @param from - Giro actual.
+ * @param to - Giro deseado.
+ * @returns Lo que hay que girar, de -PI a PI.
+ */
+const shortestTurn = (from: number, to: number) => {
+  const difference = to - from
+  return Math.atan2(Math.sin(difference), Math.cos(difference))
+}
+
+/**
+ * Convierte una dirección en un giro: abajo se ve de frente, a un lado casi de perfil y arriba de
+ * espaldas, porque se está alejando.
+ *
+ * @param x - Parte horizontal de la dirección.
+ * @param y - Parte vertical de la dirección; positiva hacia abajo.
+ * @returns El giro en radianes.
+ */
+function yawForHeading(x: number, y: number) {
+  const angle = Math.atan2(Math.abs(x), y)
+  const sideAngle = Math.PI / 2
+  const yaw =
+    angle <= sideAngle
+      ? angle * (MAX_YAW / sideAngle)
+      : MAX_YAW + (angle - sideAngle) * ((Math.PI - MAX_YAW) / sideAngle)
+  return Math.sign(x || 1) * yaw
+}
+
+/**
  * Reacción al interrumpirla: un sobresalto breve, sin destellos.
  *
  * @param state - Estado de la animación.
@@ -422,6 +500,18 @@ function targetPose(input: NovaInput): Pose {
       hairSpeed: base.hairSpeed * 1.5,
       bobHeight: 0,
       lift: base.lift - 5,
+    }
+  }
+  // Baila: alza los brazos, y las llamas se avivan con el ritmo.
+  if (input.isDancing) {
+    return {
+      ...base,
+      armLeft: 1.85,
+      armRight: 1.85,
+      hairWild: Math.max(base.hairWild, 1.4),
+      hairSpeed: base.hairSpeed * 1.5,
+      eyeSmile: Math.max(base.eyeSmile, 0.55),
+      sparkleRate: Math.max(base.sparkleRate, 14),
     }
   }
   // Va volando: lleva los brazos hacia el frente, y si no siente nada en particular, va contenta.
@@ -481,7 +571,22 @@ function blendRamp(current: FlameRamp, target: FlameRamp, t: number): FlameRamp 
 export function stepNova(state: NovaState, input: NovaInput) {
   const { dt, level, activity } = input
   const motion = input.reducedMotion ? 0.25 : 1
-  const target = targetPose(input)
+
+  // Baila cuando algo la emociona de golpe mientras te responde: no por el ánimo que ya traía al
+  // abrir la app, ni mientras la cargan o usa la compu.
+  const jumped = input.excitement >= DANCE_THRESHOLD && input.excitement - state.lastExcitement >= DANCE_JUMP
+  const isReplying = activity === 'thinking' || activity === 'speaking'
+  state.lastExcitement = input.excitement
+  if (jumped && isReplying && !input.grab.held && state.dance < 0 && !input.reducedMotion) {
+    state.dance = 0
+    state.jolt = 1
+  }
+  const wasBeforeSpin = state.dance >= 0 && state.dance < DANCE_SPIN_AT
+  if (state.dance >= 0) state.dance += dt
+  if (state.dance >= DANCE_SECONDS || input.grab.held) state.dance = -1
+  if (wasBeforeSpin && state.dance >= DANCE_SPIN_AT) startSpin(state)
+  const isDancing = state.dance >= 0
+  const target = targetPose({ ...input, isDancing })
 
   // Actualiza los relojes, la aparición y el volumen suavizado de la voz.
   state.time += dt
@@ -525,6 +630,28 @@ export function stepNova(state: NovaState, input: NovaInput) {
   state.actY += clamp(-state.grabVy * 0.01, -9, 9) * motion
   state.bodyStretch += state.grabbed * (0.13 + Math.abs(state.grabVy) * 0.00012) * motion
 
+  // El baile: se mece de lado a lado, brinca en cada golpe y se estira al subir.
+  const beat = isDancing ? state.dance * DANCE_BEAT : 0
+  const danceHop = isDancing ? Math.abs(Math.sin(beat)) : 0
+  if (isDancing) {
+    state.actX += Math.sin(beat) * 9
+    state.actY -= danceHop * 7
+    state.bodyStretch += (danceHop - 0.4) * 0.16
+    // Las notas salen al ritmo, a los lados de las llamas.
+    if (Math.random() < dt * 5) {
+      const side = Math.random() < 0.5 ? -1 : 1
+      emit(state, {
+        kind: 'note',
+        x: CANVAS_SIZE / 2 + state.x + side * random(28, 44),
+        y: HEAD_Y + state.y - random(6, 30),
+        vx: side * random(2, 8),
+        vy: random(-20, -10),
+        life: random(0.8, 1.3),
+        color: NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)],
+      })
+    }
+  }
+
   // La compu aparece poco a poco, y cada mano teclea a su propio ritmo para no verse mecánica.
   // Escribir en otra app se ve igual que buscar: Nova teclea en su compu.
   const searching = activity === 'searching' || activity === 'writing'
@@ -538,6 +665,8 @@ export function stepNova(state: NovaState, input: NovaInput) {
   // Mientras la cargan patalea con los brazos, más cuanto más rápido la muevan.
   const speed = Math.hypot(state.grabVx, state.grabVy)
   const flail = Math.sin(state.time * 15) * state.grabbed * (0.12 + Math.min(0.32, speed * 0.0005)) * motion
+  // Al bailar, cada brazo sube y baja a contratiempo del otro.
+  const danceWave = isDancing ? Math.sin(beat) * 0.6 : 0
   const gesture = activity === 'speaking' ? Math.sin(state.time * 5.5) * 0.28 * (0.3 + state.level) : 0
   const stiffness = 62
   const damping = 9
@@ -548,8 +677,8 @@ export function stepNova(state: NovaState, input: NovaInput) {
   // La alegría agita los brazos en proporción a lo que pesa dentro de la mezcla.
   const happiness = input.blend.find((item) => item.name === 'happy')?.intensity ?? 0
   const happyWave = Math.sin(state.time * 8) * 0.28 * happiness
-  ;[state.armLeft, state.armLeftVelocity] = stepArm(state.armLeft, state.armLeftVelocity, target.armLeft + gesture + happyWave + acting.armLeft + flail)
-  ;[state.armRight, state.armRightVelocity] = stepArm(state.armRight, state.armRightVelocity, target.armRight - gesture - happyWave + acting.armRight - flail)
+  ;[state.armLeft, state.armLeftVelocity] = stepArm(state.armLeft, state.armLeftVelocity, target.armLeft + gesture + happyWave + acting.armLeft + flail + danceWave)
+  ;[state.armRight, state.armRightVelocity] = stepArm(state.armRight, state.armRightVelocity, target.armRight - gesture - happyWave + acting.armRight - flail - danceWave)
 
   // Hacia dónde mira y se desplaza.
   const center = CANVAS_SIZE / 2
@@ -574,6 +703,10 @@ export function stepNova(state: NovaState, input: NovaInput) {
     // Mira hacia donde la llevan.
     gazeX = clamp(state.grabVx * 0.004, -1, 1)
     gazeY = clamp(state.grabVy * 0.004, -1, 1)
+  } else if (state.isSpinning || state.backTimer > 0) {
+    // Da la vuelta o enseña la espalda: la mirada se queda quieta para no marear.
+    gazeX = 0
+    gazeY = 0
   } else if (input.grab.heading) {
     // Mira a dónde va, también un momento antes de arrancar.
     gazeX = input.grab.heading.x
@@ -604,16 +737,33 @@ export function stepNova(state: NovaState, input: NovaInput) {
 
   // Voltea el cuerpo según a dónde va; de vez en cuando se gira un poco solo por mirar algo.
   // La cabeza llega primero y se pasa tantito; el cuerpo la sigue. Con la compu sigue de frente.
-  const carriedTurn = held ? clamp(state.grabVx / 250, -1, 1) : 0
-  const travelTurn = input.grab.heading ? input.grab.heading.x : carriedTurn
+  state.backTimer = Math.max(0, state.backTimer - dt)
+  const heading = input.grab.heading
+  const carriedYaw = held ? clamp(state.grabVx / 250, -1, 1) * MAX_YAW : 0
+  const travelYaw = state.backTimer > 0 ? Math.PI : heading ? yawForHeading(heading.x, heading.y) : carriedYaw
   const frontFacing = 1 - state.typing
-  const headGoal = (travelTurn * MAX_YAW + state.lookX * 0.32) * frontFacing
-  const bodyGoal = (travelTurn * MAX_YAW * 0.85 + state.lookX * 0.1) * frontFacing
+  // Al bailar voltea de un lado a otro, a la mitad del ritmo de los brincos.
+  const danceTurn = isDancing ? Math.sin(beat * 0.5) * 0.75 : 0
+  const headGoal = (travelYaw + state.lookX * 0.32 + danceTurn) * frontFacing
+  const bodyGoal = (travelYaw * 0.9 + state.lookX * 0.1 + danceTurn * 0.8) * frontFacing
+  const headTurn = shortestTurn(state.faceYaw, headGoal)
   // Al cambiar de lado parpadea, como en los dibujos animados: oculta el giro y lo hace más vivo.
-  if (Math.abs(headGoal - state.headYaw) > 1.2 && state.blink <= 0) state.blink = 1
-  state.headYawVelocity += (70 * (headGoal - state.headYaw) - 11 * state.headYawVelocity) * dt
-  state.headYaw = clamp(state.headYaw + state.headYawVelocity * dt, -MAX_YAW * 1.08, MAX_YAW * 1.08)
-  state.bodyYaw = approach(state.bodyYaw, bodyGoal, 6, dt)
+  if (Math.abs(headTurn) > 1.2 && state.blink <= 0) state.blink = 1
+  state.faceYawVelocity += (70 * headTurn - 11 * state.faceYawVelocity) * dt
+  state.faceYaw += state.faceYawVelocity * dt
+  state.torsoYaw += shortestTurn(state.torsoYaw, bodyGoal) * (1 - Math.exp(-6 * dt))
+
+  // La vuelta completa se suma al giro: la cabeza va adelante y el cuerpo la alcanza al final.
+  if (state.isSpinning) {
+    state.spin += ((Math.PI * 2) / SPIN_SECONDS) * dt
+    if (input.reducedMotion || state.spin >= Math.PI * 2 + SPIN_BODY_LAG) {
+      state.isSpinning = false
+      state.spin = 0
+    }
+  }
+  const spinEase = (angle: number) => Math.PI * 2 * (0.5 - 0.5 * Math.cos(Math.PI * clamp(angle / (Math.PI * 2), 0, 1)))
+  state.headYaw = state.faceYaw + (state.isSpinning ? spinEase(state.spin) : 0)
+  state.bodyYaw = state.torsoYaw + (state.isSpinning ? spinEase(state.spin - SPIN_BODY_LAG) : 0)
 
   // Se desplaza con un resorte hacia el cursor.
   const previousX = state.x

@@ -2,6 +2,13 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.14.0 · 6 de noviembre de 2026 · La vuelta completa y el baile
+- Nova tiene vista de espaldas: nuca con costura y ranuras, espalda con costura y llamas por delante del casco.
+- Al volar hacia arriba se ve de espaldas, porque se aleja; en diagonal se ve de tres cuartos.
+- Se le puede pedir que dé una vuelta o que enseñe la espalda; a veces da una vuelta sola al llegar.
+- Baila si algo la pone muy feliz o la sorprende de golpe: brinca, se mece, alza los brazos, da una vuelta y suelta notas.
+- Se quitaron el audífono y la aleta de la v0.13.0, que parecían antenas. La gema ya no se vuelve una punta delgada de perfil.
+
 ## v0.13.0 · 6 de noviembre de 2026 · Nova voltea
 - Mira a dónde va: primero voltea hacia allá, luego arranca poco a poco y frena al llegar.
 - Se ve casi de perfil al moverse a un lado: la cara se recorre, el cuerpo la sigue y el ojo lejano se oculta.

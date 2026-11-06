@@ -15,7 +15,7 @@ DEFAULT_INTENSITY = 1.0
 SEARCH_PATTERN = re.compile(r"\[\[\s*search\s*:\s*([^\[\]]{1,200}?)\s*\]\]", re.IGNORECASE)
 MOVE_PATTERN = re.compile(
     r"\[\[\s*move\s*:\s*(away|left|right|up|down|top_left|top_right|bottom_left|bottom_right|center"
-    r"|stay|roam|hide)\s*\]\]",
+    r"|stay|roam|hide|spin|show_back)\s*\]\]",
     re.IGNORECASE,
 )
 WRITE_PATTERN = re.compile(r"\[\[\s*write\s*:\s*([^\[\]]{1,400}?)\s*\]\]", re.IGNORECASE)

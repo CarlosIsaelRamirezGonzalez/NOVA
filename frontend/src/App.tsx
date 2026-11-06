@@ -177,8 +177,8 @@ export default function App() {
   const isUsingLaptop = webSearch !== 'none'
   useEffect(() => {
     if (!IS_WIDGET) return
-    const bridge = (window as unknown as { novaDesktop?: { pauseWander: (paused: boolean) => void } }).novaDesktop
-    bridge?.pauseWander(isUsingLaptop)
+    const bridge = (window as unknown as { novaDesktop?: { pauseWander: (reason: string, paused: boolean) => void } }).novaDesktop
+    bridge?.pauseWander('laptop', isUsingLaptop)
   }, [isUsingLaptop])
 
   // Flotando, siempre está atenta a su nombre; también pide el permiso del micrófono si hace falta.
