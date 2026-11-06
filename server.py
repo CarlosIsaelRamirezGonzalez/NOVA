@@ -72,7 +72,8 @@ PORT = 8787
 # Sincronizar cuesta casi un segundo de red, así que se agrupan los cambios.
 SYNC_SECONDS = 30
 HEARTBEAT_SECONDS = 30
-PHOTO_TIMEOUT_SECONDS = 10
+# Alcanza para contestar el permiso de la cámara la primera vez.
+PHOTO_TIMEOUT_SECONDS = 30
 GESTURE_COOLDOWN_SECONDS = 30
 HISTORY_MESSAGES_SHOWN = 60
 ALLOWED_ORIGINS = frozenset(
@@ -222,8 +223,11 @@ class NovaServer:
                     await self._set_listening(socket, client_request.enabled)
                     continue
                 if isinstance(client_request, MicGateRequest):
-                    self.listening.set_gate(client_request.open)
-                    self.listening_camera_on = client_request.camera_on
+                    # Manda la pantalla que está escuchando: otra, sin turno en curso, abriría el
+                    # micrófono mientras Nova todavía habla.
+                    if socket is self.listening_socket:
+                        self.listening.set_gate(client_request.open)
+                        self.listening_camera_on = client_request.camera_on
                     continue
                 if isinstance(client_request, UsageRequest):
                     quota = await self.agent.tts.quota(self.session)
@@ -574,9 +578,9 @@ class NovaServer:
             self.pending_photo_id = None
             self.pending_photo = None
 
-        # Sin imagen significa que la cámara está apagada; eso no gasta cupo.
+        # Sin imagen significa que la cámara no se pudo encender; eso no gasta cupo.
         if data_url is None:
-            print("[Photo] camera is off", flush=True)
+            print("[Photo] camera unavailable", flush=True)
             return PhotoResult(status="camera_off")
 
         self.photo_budget.record()

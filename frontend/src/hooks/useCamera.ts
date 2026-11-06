@@ -5,6 +5,8 @@ import type { FaceLandmarker, HandLandmarker } from '@mediapipe/tasks-vision'
 import type { EmotionBlend } from '../nova/emotions'
 import { detectGesture, type Gesture } from '../nova/gestures'
 
+/** Tiempo para que la cámara ajuste la luz: la primera imagen suele salir oscura. */
+const ONE_SHOT_SETTLE_MS = 900
 const PHOTO_WIDTH = 640
 const PHOTO_HEIGHT = 480
 const PHOTO_QUALITY = 0.8
@@ -321,4 +323,40 @@ export function useCamera(
   const getFace = useCallback(() => face.current, [])
 
   return { active, waitingForPermission, cameraError, reflex: reflexFor(observation), toggle, capture, getFace }
+}
+
+/**
+ * Enciende la cámara solo para tomar una foto y la apaga de inmediato. El video nunca se muestra.
+ *
+ * @returns La foto en JPEG como data URL, o `null` si no se pudo encender.
+ */
+export async function takeOneShotPhoto(): Promise<string | null> {
+  const bridge = (window as unknown as { novaDesktop?: { requestCamera?: () => Promise<boolean> } }).novaDesktop
+  let stream: MediaStream | null = null
+  const element = document.createElement('video')
+  try {
+    if (bridge?.requestCamera && !(await bridge.requestCamera())) return null
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: PHOTO_WIDTH, height: PHOTO_HEIGHT, facingMode: 'user' },
+      audio: false,
+    })
+    element.muted = true
+    element.playsInline = true
+    element.srcObject = stream
+    await element.play()
+    await new Promise((resolve) => setTimeout(resolve, ONE_SHOT_SETTLE_MS))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = PHOTO_WIDTH
+    canvas.height = PHOTO_HEIGHT
+    canvas.getContext('2d')?.drawImage(element, 0, 0, PHOTO_WIDTH, PHOTO_HEIGHT)
+    return canvas.toDataURL('image/jpeg', PHOTO_QUALITY)
+  } catch (cause) {
+    console.error('No se pudo tomar la foto', cause)
+    return null
+  } finally {
+    // Pase lo que pase, la cámara no se queda encendida.
+    stream?.getTracks().forEach((track) => track.stop())
+    element.srcObject = null
+  }
 }

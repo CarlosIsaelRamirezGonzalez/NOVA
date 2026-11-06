@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('novaDesktop', {
   requestMicrophone: () => ipcRenderer.invoke('request-microphone'),
+  requestCamera: () => ipcRenderer.invoke('request-camera'),
   startDrag: (screenX, screenY) => ipcRenderer.send('drag-start', screenX, screenY),
   moveDrag: (screenX, screenY) => ipcRenderer.send('drag-move', screenX, screenY),
   endDrag: () => ipcRenderer.send('drag-end'),

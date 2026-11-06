@@ -1,5 +1,6 @@
 /** Hook de conversación: WebSocket, voz y mensajes. */
 
+import { takeOneShotPhoto } from './useCamera'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { EMOTIONS, type EmotionBlend, type EmotionComponent } from '../nova/emotions'
 import type { Gesture } from '../nova/gestures'
@@ -151,6 +152,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
   // La compu aparece al buscar y se queda mientras Nova te cuenta lo que encontró.
   const [webSearch, setWebSearch] = useState<WebSearchStage>('none')
   const [photoCount, setPhotoCount] = useState(0)
+  const [isTakingPhoto, setIsTakingPhoto] = useState(false)
   const [interruptCount, setInterruptCount] = useState(0)
   const [photosRemaining, setPhotosRemaining] = useState<number | null>(null)
 
@@ -365,13 +367,25 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
           ])
         } else if (event.type === 'photo_request') {
           // Toma la foto y la muestra en el chat, para que se vea exactamente qué recibió Nova.
-          const dataUrl = latestCapture.current()
-          if (dataUrl) {
-            setPhotoCount((count) => count + 1)
-            setPhotosRemaining(event.remaining - 1)
-            setMessages((current) => [...current, { id: nextId.current++, role: 'photo', text: dataUrl }])
+          // Con la cámara apagada, se enciende solo para esta foto, y el punto rojo lo avisa.
+          const takePhoto = async () => {
+            let dataUrl = latestCapture.current()
+            if (!dataUrl) {
+              setIsTakingPhoto(true)
+              dataUrl = await takeOneShotPhoto()
+              setIsTakingPhoto(false)
+            }
+            if (dataUrl) {
+              const photo = dataUrl
+              setPhotoCount((count) => count + 1)
+              setPhotosRemaining(event.remaining - 1)
+              setMessages((current) => [...current, { id: nextId.current++, role: 'photo', text: photo }])
+            }
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'photo', request_id: event.request_id, data_url: dataUrl }))
+            }
           }
-          ws.send(JSON.stringify({ type: 'photo', request_id: event.request_id, data_url: dataUrl }))
+          void takePhoto()
         } else if (event.type === 'search_start') {
           // Deja constancia en el chat de qué buscó.
           setWebSearch('searching')
@@ -589,6 +603,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     calmCount,
     greetCount,
     photoCount,
+    isTakingPhoto,
     interruptCount,
     photosRemaining,
     messages,

@@ -2,6 +2,12 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.18.0 · 6 de noviembre de 2026 · Mira cuando se lo pides
+- Nova vuelve a poder ver desde la ventana flotante: si le pides que mire, la cámara se enciende para una sola foto y se apaga.
+- Un punto rojo avisa mientras la cámara está encendida, y solo se le ofrece la foto si lo pides en ese mensaje.
+- Si en una foto hay otra persona, no adivina quién es por su cara: pregunta.
+- Corregido: una ventana sin turno en curso podía abrir el micrófono mientras Nova hablaba en otra.
+
 ## v0.17.0 · 6 de noviembre de 2026 · Se marea
 - Si la tomas y la sacudes, se marea: ojos en espiral, estrellitas alrededor de la cabeza, y se tambalea unos segundos.
 

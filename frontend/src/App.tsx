@@ -113,6 +113,7 @@ export default function App() {
     calmCount,
     greetCount,
     photoCount,
+    isTakingPhoto,
     interruptCount,
     photosRemaining,
     messages,
@@ -265,6 +266,13 @@ export default function App() {
         }`}
       >
         {/* Un punto discreto indica que el micrófono está abierto, aunque los botones estén ocultos */}
+        {isTakingPhoto && (
+          <span
+            role="img"
+            aria-label="Cámara encendida para tomar una foto"
+            className="absolute top-3 left-3 size-3 rounded-full bg-alert"
+          />
+        )}
         {listenEnabled && (
           <span
             role="img"

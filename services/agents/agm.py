@@ -112,7 +112,8 @@ FORGET_TOOL = ToolDefinition(
 CAMERA_TOOL = ToolDefinition(
     name=CAMERA_TOOL_NAME,
     description=(
-        "Take a photo with Carlos's camera and see it. Call this whenever he asks you to look or to "
+        "Take one photo with Carlos's camera and see it; if it is off, it turns on just for this. Call "
+        "this whenever he asks what you see (\"¿qué ves?\"), or asks you to look or to "
         "see, or asks about how he looks or about something or someone he is showing you. It is his "
         "camera and his decision. Never answer about what he is showing without calling it first. "
         "Not needed for ordinary conversation."
@@ -211,6 +212,11 @@ WRITE_NOTES: tuple[tuple[WriteStatus, str], ...] = (
         "wrote anything.",
     ),
 )
+# Sin la cámara encendida, solo puede tomar la foto si Carlos pide algo así en este mensaje.
+LOOK_REQUEST = re.compile(
+    r"\b(m[ií]r|ve\b|ves\b|ver\b|v[eé]me|veo|checa|observ|f[ií]jate|foto|c[aá]mara|ense[nñ]|muestr)",
+    re.IGNORECASE,
+)
 LOOK_PHRASE = "A ver... "
 # La voz es lo que más cuesta. Lo largo y el código se quedan por escrito, en la pantalla.
 MAX_SPOKEN_CHARS = 600
@@ -263,8 +269,9 @@ CAMERA_ON_CONTEXT = (
     "camera is no reason to take one. Anything said earlier about the camera being off is out of date."
 )
 CAMERA_OFF_CONTEXT = (
-    "Carlos's camera is OFF right now. If he asks you to look at him, tell him to turn it on with "
-    "the Cámara button. You cannot see him."
+    "Carlos's camera is off, so you can't see him now. It turns on for a single photo only if he asks "
+    "you to look: when the look_through_camera tool is available, use it for that. Without a photo, "
+    "don't describe him."
 )
 
 PHOTO_CAPTION = (
@@ -281,8 +288,9 @@ PHOTO_NOTES: tuple[tuple[PhotoStatus, str], ...] = (
     ),
     (
         "camera_off",
-        "No photo: Carlos's camera is off. Tell him to turn it on with the Cámara button. "
-        "You saw nothing, so do not describe or guess what he looks like.",
+        "No photo: the camera couldn't turn on. Tell him to allow Electron in System Settings > "
+        "Privacy & Security > Camera, or to check that no other app is using it. You saw nothing, so "
+        "do not describe or guess what he looks like.",
     ),
     (
         "daily_limit",
@@ -575,8 +583,8 @@ class AgentManager:
         self.partial_reply = ""
         request = self.conversation.build_request(self.model, context)
         request.tools = [FORGET_TOOL, MOVE_TOOL]
-        # Sin cámara, Claude no debe poder intentar mirar.
-        if camera_on:
+        # Sin cámara y sin que se lo pidan, Claude no debe poder intentar mirar.
+        if camera_on or LOOK_REQUEST.search(user_input):
             request.tools.append(CAMERA_TOOL)
         if self.web_search:
             request.tools.append(WEB_SEARCH_TOOL)

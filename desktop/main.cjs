@@ -543,6 +543,8 @@ if (!app.requestSingleInstanceLock()) {
 
   // El permiso del micrófono se pide hasta que enciendes el micrófono.
   ipcMain.handle('request-microphone', () => systemPreferences.askForMediaAccess('microphone'))
+  // El de la cámara, hasta la primera vez que le pides a Nova que mire.
+  ipcMain.handle('request-camera', () => systemPreferences.askForMediaAccess('camera'))
 
   app.whenReady().then(async () => {
     app.dock?.hide()
