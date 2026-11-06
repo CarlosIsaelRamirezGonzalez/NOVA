@@ -1,11 +1,11 @@
 {
   "name": "nova-desktop",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "description": "Nova en una ventana flotante de macOS",
   "main": "main.cjs",
   "scripts": {
-    "start": "electron ."
+    "start": "open -a \"$PWD/node_modules/electron/dist/Electron.app\" --args \"$PWD\""
   },
   "devDependencies": {
     "electron": "45.2.3"

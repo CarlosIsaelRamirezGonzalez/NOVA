@@ -28,7 +28,7 @@ export type EmotionComponent = {
 export type EmotionBlend = EmotionComponent[]
 
 /** Lo que está haciendo Nova en este momento. */
-export type Activity = 'idle' | 'listening' | 'thinking' | 'speaking' | 'searching' | 'reading'
+export type Activity = 'idle' | 'listening' | 'thinking' | 'speaking' | 'searching' | 'reading' | 'writing'
 
 /** Nombre de cada emoción tal como se muestra en la interfaz. */
 export const EMOTION_LABELS: Record<Emotion, string> = {

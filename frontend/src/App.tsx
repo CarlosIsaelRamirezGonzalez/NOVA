@@ -58,6 +58,7 @@ const STATUS: Record<Activity, string> = {
   speaking: 'Hablando',
   searching: 'Buscando en internet',
   reading: 'Contándote lo que encontró',
+  writing: 'Escribiendo en tu app',
 }
 
 /**

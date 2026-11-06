@@ -32,6 +32,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | 16. Platicar de corrido | `v0.8.0` | Varias preguntas seguidas diciendo solo "Nova" una vez | Repetir la frase cada vez rompía la plática |
 | 17. Cargarla con el cursor | `v0.9.0` | Arrastrarla por toda la pantalla | La forma nativa de mover ventanas no dejaba animar nada: hubo que hacerla a mano |
 | 18. Aparece cuando la llamas | `v0.10.0` | El escritorio vacío, decir "Nova" y verla salir del portal | Oculta tenía que seguir oyendo: la ventana se esconde, pero nunca se apaga |
+| 19. Manos en la compu | `v0.11.0` | Pedirle que termine un mensaje de prueba y verla teclear | Antes de darle manos se le quitó el chantaje, y el Enter se eliminó desde el código |
 
 ## Decisiones y por qué
 | Decisión | Alternativa | Motivo |
@@ -46,6 +47,8 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | Vosk con palabras parecidas para "Oye Nova" | Solo la frase | Solo la frase se activaba por error casi siempre |
 | Whisper local para transcribir | Servicio de pago | Sin costo y sin mandar audio a internet |
 | Electron | Tauri | Sin instalar Rust, y usa el mismo Chromium donde ya se probó la animación |
+| Teclear sin Enter, con reglas en el código | Confiar en lo que diga el prompt | Una instrucción se puede ignorar; un carácter que se quita antes de teclear, no |
+| Un redactor aparte, sin herramientas ni memoria | Darle la captura a Nova | Un mensaje en pantalla que intente darle órdenes solo puede cambiar el texto, que tú revisas |
 
 ## Cifras para contar
 | Qué se midió | Resultado |

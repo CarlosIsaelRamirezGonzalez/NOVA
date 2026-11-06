@@ -80,7 +80,7 @@ export type Recall = {
 }
 
 /** En qué va una búsqueda en internet: buscando, o ya contando lo que encontró. */
-export type WebSearchStage = 'none' | 'searching' | 'reading'
+export type WebSearchStage = 'none' | 'searching' | 'reading' | 'writing'
 
 /** Fase del turno de conversación. */
 export type Phase = 'idle' | 'thinking' | 'speaking'
@@ -100,6 +100,8 @@ type ServerEvent =
   | { type: 'photo_request'; request_id: string; remaining: number }
   | { type: 'search_start'; query: string }
   | { type: 'search_done'; sources: string[] }
+  | { type: 'write_start' }
+  | { type: 'write_done' }
   | { type: 'interrupted' }
   | ({ type: 'brain' } & Brain)
   | ({ type: 'usage' } & Usage)
@@ -357,6 +359,10 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
           // Deja constancia en el chat de qué buscó.
           setWebSearch('searching')
           setMessages((current) => [...current, { id: nextId.current++, role: 'search', text: event.query }])
+        } else if (event.type === 'write_start') {
+          setWebSearch('writing')
+        } else if (event.type === 'write_done') {
+          setWebSearch('none')
         } else if (event.type === 'search_done') {
           setWebSearch('reading')
           setMessages((current) => {

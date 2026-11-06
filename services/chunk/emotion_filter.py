@@ -13,12 +13,13 @@ DEFAULT_INTENSITY = 1.0
 
 # Admite `[[search: clima en Monterrey]]`; va antes que las emociones por el `:` de su formato.
 SEARCH_PATTERN = re.compile(r"\[\[\s*search\s*:\s*([^\[\]]{1,200}?)\s*\]\]", re.IGNORECASE)
+WRITE_PATTERN = re.compile(r"\[\[\s*write\s*:\s*([^\[\]]{1,400}?)\s*\]\]", re.IGNORECASE)
 # Admite `[[sad]]` y mezclas como `[[sad:0.6, worried:0.4]]`.
 _COMPONENT = r"[a-zA-Z]+(?:\s*:\s*\d*\.?\d+)?"
 TAG_PATTERN = re.compile(rf"\[\[\s*({_COMPONENT}(?:\s*,\s*{_COMPONENT})*)\s*\]\]")
 TAG_OPENING = "[["
 TAG_CLOSING = "]]"
-MAX_TAG_LENGTH = 240
+MAX_TAG_LENGTH = 480
 
 
 def parse_blend(body: str) -> EmotionBlend | None:
@@ -64,7 +65,7 @@ def strip_tags(text: str) -> str:
 
 
 class EmotionTagFilter:
-    """Separa `[[emoción]]`, `[[photo]]`, `[[forget]]` y `[[search: ...]]`, aunque lleguen en varios tokens."""
+    """Separa `[[emoción]]`, `[[photo]]`, `[[forget]]`, `[[search: ...]]` y `[[write: ...]]`, aunque lleguen en varios tokens."""
 
     def __init__(self) -> None:
         """Inicia sin texto pendiente."""
@@ -102,6 +103,12 @@ class EmotionTagFilter:
             if search:
                 result.search_query = result.search_query or search.group(1)
                 self.pending = self.pending[search.end() :]
+                continue
+
+            write = WRITE_PATTERN.match(self.pending)
+            if write:
+                result.write_instructions = result.write_instructions or write.group(1)
+                self.pending = self.pending[write.end() :]
                 continue
 
             match = TAG_PATTERN.match(self.pending)

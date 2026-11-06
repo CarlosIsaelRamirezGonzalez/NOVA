@@ -19,6 +19,7 @@ from services.agents.agm import GESTURES, AgentManager, gesture_message
 from services.chunk.emotion_filter import strip_tags
 from services.agents.llms_service import LLMService
 from services.agents.web_search_service import WebSearchService
+from services.agents.writing_service import DesktopWriter
 from services.context.conversation_service import ConversationService
 from services.context.memory_service import MemoryService
 from services.context.memory_store import MemoryStore
@@ -50,6 +51,8 @@ from services.schemas import (
     RecallEvent,
     SearchDoneEvent,
     SearchStartEvent,
+    WriteDoneEvent,
+    WriteStartEvent,
     ServerEvent,
     ListenRequest,
     ListenStateEvent,
@@ -105,6 +108,7 @@ class NovaServer:
             store=self.store,
         )
         self.agent.web_search = WebSearchService(self.anthropic, self.usage)
+        self.agent.writer = DesktopWriter(self.agent.llm, self.agent.model)
         self.memory = MemoryService(
             self.store,
             VectorIndex(config.vector_path, config.models_path),
@@ -552,11 +556,13 @@ class NovaServer:
             """
             return await self._request_photo(socket)
 
-        async def send_search(event: SearchStartEvent | SearchDoneEvent) -> None:
-            """Avisa al navegador de una búsqueda en internet.
+        async def send_search(
+            event: SearchStartEvent | SearchDoneEvent | WriteStartEvent | WriteDoneEvent,
+        ) -> None:
+            """Avisa al navegador de una búsqueda o de que está escribiendo en otra app.
 
             Args:
-                event: Inicio o final de la búsqueda.
+                event: Inicio o final de la actividad.
             """
             await self._send(socket, event)
 

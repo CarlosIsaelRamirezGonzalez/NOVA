@@ -37,6 +37,53 @@ MAX_PHOTO_DATA_URL_CHARS = 2_000_000
 UsagePurpose = Literal["conversation", "memory", "search", "voice"]
 
 
+TypingStatus = Literal["written", "stopped", "app_changed", "secure_field"]
+WriteStatus = (
+    TypingStatus
+    | Literal["blocked_app", "needs_accessibility", "needs_screen", "no_window", "no_field", "failed"]
+)
+
+
+class FrontApp(BaseModel):
+    """App que Carlos tiene al frente.
+
+    Attributes:
+        pid: Proceso de la app.
+        bundle_id: Identificador de la app en macOS.
+        name: Nombre visible.
+    """
+
+    pid: int
+    bundle_id: str
+    name: str
+
+
+class WritingDraft(BaseModel):
+    """Texto que el redactor propone teclear.
+
+    Attributes:
+        existing_draft: Lo que ya estaba escrito en el campo.
+        text: Texto para escribir en el cursor.
+        problem: `no_field` si no se ve dónde escribir.
+    """
+
+    existing_draft: str
+    text: str
+    problem: Literal["none", "no_field"]
+
+
+class WriteResult(BaseModel):
+    """Cómo terminó un intento de escribir en la app al frente.
+
+    Attributes:
+        status: Resultado.
+        app_name: App en la que se intentó, si se llegó a saber.
+    """
+
+    status: WriteStatus
+    app_name: str = "esa app"
+
+
 class TextPart(BaseModel):
     """Parte de texto de un mensaje con varias partes.
 
@@ -111,6 +158,16 @@ class SearchArguments(BaseModel):
     """
 
     query: str
+
+
+class WriteArguments(BaseModel):
+    """Argumentos con los que el modelo pide escribir en la app al frente.
+
+    Attributes:
+        instructions: Qué quiere Carlos que se escriba, con los datos que él dio.
+    """
+
+    instructions: str
 
 
 class ChatRequest(BaseModel):
@@ -212,6 +269,7 @@ class FilteredText(BaseModel):
         photo_requested: Si Nova pidió ver la cámara.
         forget_requested: Si Nova decidió olvidar algo porque Carlos se lo pidió.
         search_query: Lo que Nova quiere buscar en internet, si pidió hacerlo.
+        write_instructions: Lo que Nova debe escribir en la app al frente, si pidió hacerlo.
     """
 
     text: str = ""
@@ -219,6 +277,7 @@ class FilteredText(BaseModel):
     photo_requested: bool = False
     forget_requested: bool = False
     search_query: str | None = None
+    write_instructions: str | None = None
 
 
 class ForgetDecision(BaseModel):
@@ -355,12 +414,14 @@ class StreamedReply(BaseModel):
         photo_requested: Si Nova pidió ver la cámara.
         forget_requested: Si Nova decidió olvidar algo.
         search_query: Lo que Nova quiere buscar en internet, si pidió hacerlo.
+        write_instructions: Lo que Nova debe escribir en la app al frente, si pidió hacerlo.
     """
 
     raw_text: str = ""
     photo_requested: bool = False
     forget_requested: bool = False
     search_query: str | None = None
+    write_instructions: str | None = None
 
 
 class PhotoResult(BaseModel):
@@ -709,6 +770,26 @@ class SearchStartEvent(BaseModel):
     query: str
 
 
+class WriteStartEvent(BaseModel):
+    """Aviso de que Nova empezó a escribir en la app al frente.
+
+    Attributes:
+        type: Discriminador del evento.
+    """
+
+    type: Literal["write_start"] = "write_start"
+
+
+class WriteDoneEvent(BaseModel):
+    """Aviso de que Nova dejó de escribir en la app al frente.
+
+    Attributes:
+        type: Discriminador del evento.
+    """
+
+    type: Literal["write_done"] = "write_done"
+
+
 class SearchDoneEvent(BaseModel):
     """Aviso de que Nova terminó de buscar en internet.
 
@@ -859,6 +940,8 @@ ServerEvent = (
     | HeardEvent
     | SearchStartEvent
     | SearchDoneEvent
+    | WriteStartEvent
+    | WriteDoneEvent
     | GestureReactionEvent
     | InterruptedEvent
     | DoneEvent

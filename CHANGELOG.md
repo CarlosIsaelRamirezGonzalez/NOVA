@@ -2,6 +2,16 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.11.0 · 5 de noviembre de 2026 · Escribe en tu app
+- Nova puede ver la ventana que tienes al frente y escribir ahí lo que le pidas, como terminar un mensaje de WhatsApp.
+- Nunca envía: se quita todo salto de línea antes de teclear, y el Enter siempre lo das tú.
+- Mover el mouse o presionar Esc la detiene; también se detiene si cambia la app al frente o hay un campo de contraseña.
+- No escribe en terminales, ajustes ni gestores de contraseñas, y solo se le ofrece la herramienta si lo pides en ese mensaje.
+- La captura no se guarda, y ni ella ni el texto redactado entran al historial o a los recuerdos.
+- Se quitó de su prompt el permiso de chantaje emocional cuando la amenazan con apagarla: puede discutir, rogar o negociar.
+- `npm --prefix desktop start` abre la app por su cuenta, para que los permisos de macOS sean de Nova y no de la terminal.
+- Falta probar el tecleo real: requiere que concedas el permiso de Accesibilidad.
+
 ## v0.10.0 · 5 de noviembre de 2026 · Aparece cuando la llamas
 - Con el micrófono encendido, Nova se queda oculta y aparece al decir "Nova" u "Oye Nova".
 - Sale de su portal con un rebote y se va unos segundos después de que termina la plática.

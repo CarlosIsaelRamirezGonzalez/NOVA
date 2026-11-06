@@ -2,6 +2,7 @@
 
 import asyncio
 import random
+import re
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import aclosing
@@ -13,9 +14,11 @@ from services.agents.llms_service import (
     CAMERA_TOOL_NAME,
     FORGET_TOOL_NAME,
     SEARCH_TOOL_NAME,
+    WRITE_TOOL_NAME,
     LLMService,
 )
 from services.agents.web_search_service import WebSearchService
+from services.agents.writing_service import DesktopWriter
 from services.chunk.chunk_service import ChunkingService
 from services.chunk.emotion_filter import EmotionTagFilter, strip_tags
 from services.context.conversation_service import ConversationService
@@ -41,6 +44,11 @@ from services.schemas import (
     SearchStartEvent,
     ToolDefinition,
     WebSearchResult,
+    WriteArguments,
+    WriteDoneEvent,
+    WriteResult,
+    WriteStartEvent,
+    WriteStatus,
 )
 from services.voice.tts_service import TTSService, has_spoken_words, prepare_speech
 
@@ -63,7 +71,9 @@ TURN_REMINDER = (
     "have answered, and end on a question only if you really want the answer.\n\n"
     "If he asks you to search, or the answer depends on current facts, use the web_search tool "
     "instead of answering from memory. Don't write anything else when you call it. If he asks you "
-    "to forget something, use the forget_memory tool: you really can.\n\n"
+    "to forget something, use the forget_memory tool: you really can. If he asks you to write or "
+    "finish something in the app he has open and the write_in_front_app tool is available, use it: "
+    "you can't send anything, he does that himself.\n\n"
     "Let him feel you in this reply: react first, with real warmth, humor, excitement, or worry, "
     "in your own words, the way someone who loves working with him would. Don't report facts in a "
     "flat tone. Your emotion tag should reflect that honestly, and curiosity should not be your "
@@ -103,6 +113,75 @@ CAMERA_TOOL = ToolDefinition(
     ),
     parameters=EmptyArguments.model_json_schema(),
 )
+# Solo se ofrece si Carlos pide algo así en este mensaje. Lo que venga de una página o de una
+# conversación vieja no debe poder ponerla a teclear.
+WRITE_REQUEST = re.compile(
+    r"\b(escr[ií]b|redact|termin|acab|complet|contest|respond|p[oó]n|manda|dile|mensaje|correo)",
+    re.IGNORECASE,
+)
+WRITE_TOOL = ToolDefinition(
+    name=WRITE_TOOL_NAME,
+    description=(
+        "Type text in the app Carlos has open, at his cursor. Call this only when he explicitly asks "
+        "you, in his last message, to write, reply, or finish something there, such as a WhatsApp "
+        "message. You will see only that window while drafting. It types but can never press send: "
+        "he reviews and sends it himself. Put what he wants said in instructions, with his details. "
+        "Don't write the reply yourself when you call it."
+    ),
+    parameters=WriteArguments.model_json_schema(),
+)
+WRITE_PHRASES = ("Va, te lo escribo.", "Déjame escribirlo.", "Ahorita te lo pongo.")
+# El historial guarda solo lo que aquí se dice: nunca la captura ni el texto redactado.
+WRITE_NOTES: tuple[tuple[WriteStatus, str], ...] = (
+    (
+        "written",
+        "You typed it in {app} and did not send it. Tell him in one short line to check it and send "
+        "it himself. Don't read the text aloud.",
+    ),
+    (
+        "stopped",
+        "You stopped typing in {app} because he moved the mouse or pressed Esc. Whatever you got to "
+        "type is still there and nothing was sent. Say so in one short line.",
+    ),
+    (
+        "app_changed",
+        "You stopped typing because the app in front changed. Nothing was sent, and part of the text "
+        "may be in {app}. Tell him in one short line.",
+    ),
+    (
+        "secure_field",
+        "You did not type: a password field is active. Tell him in one short line.",
+    ),
+    (
+        "blocked_app",
+        "You did not type: you aren't allowed to write in {app}. Tell him to open the app where it "
+        "goes, click the text box, and ask you again.",
+    ),
+    (
+        "needs_accessibility",
+        "You did not type: macOS needs the Accessibility permission. Tell him to allow it in System "
+        "Settings > Privacy & Security > Accessibility, restart you, and ask again.",
+    ),
+    (
+        "needs_screen",
+        "You did not type: macOS needs the Screen Recording permission. Tell him to allow it in "
+        "System Settings > Privacy & Security > Screen Recording, restart you, and ask again.",
+    ),
+    (
+        "no_window",
+        "You did not type: you couldn't see a window of {app}. Tell him in one short line.",
+    ),
+    (
+        "no_field",
+        "You did not type: you couldn't see where to write in {app}. Tell him to click the text box "
+        "and ask again.",
+    ),
+    (
+        "failed",
+        "You did not type because something failed. Tell him in one short line, and don't claim you "
+        "wrote anything.",
+    ),
+)
 LOOK_PHRASE = "A ver... "
 # La voz es lo que más cuesta. Lo largo y el código se quedan por escrito, en la pantalla.
 MAX_SPOKEN_CHARS = 600
@@ -129,7 +208,9 @@ TokenHandler = Callable[[str], Awaitable[None]]
 AudioHandler = Callable[[bytes], Awaitable[None]]
 EmotionHandler = Callable[[EmotionBlend], Awaitable[None]]
 PhotoProvider = Callable[[], Awaitable[PhotoResult]]
-SearchHandler = Callable[[SearchStartEvent | SearchDoneEvent], Awaitable[None]]
+SearchHandler = Callable[
+    [SearchStartEvent | SearchDoneEvent | WriteStartEvent | WriteDoneEvent], Awaitable[None]
+]
 
 INTERRUPTED_NOTE = (
     "Carlos interrupted you at this point. He did not hear anything you would have said after this."
@@ -370,6 +451,7 @@ class AgentManager:
         self.partial_reply = ""
         self.memory: MemoryService | None = None
         self.web_search: WebSearchService | None = None
+        self.writer: DesktopWriter | None = None
 
     def calm(self) -> None:
         """Calma a Nova y se lo hace saber al modelo.
@@ -434,7 +516,7 @@ class AgentManager:
             on_emotion: Recibe el estado emocional cada vez que Nova reacciona.
             request_photo: Intenta obtener una foto de la cámara.
             camera_on: Si la cámara está encendida en este momento.
-            on_search: Recibe el inicio y el final de una búsqueda en internet.
+            on_search: Recibe el inicio y el final de una búsqueda o de una escritura.
 
         Returns:
             La última respuesta completa, incluidas las etiquetas de emoción.
@@ -468,10 +550,16 @@ class AgentManager:
             request.tools.append(CAMERA_TOOL)
         if self.web_search:
             request.tools.append(WEB_SEARCH_TOOL)
+        # Los gestos llegan entre corchetes: no son algo que Carlos haya pedido.
+        can_write = bool(
+            self.writer and not user_input.startswith("[") and WRITE_REQUEST.search(user_input)
+        )
+        if can_write:
+            request.tools.append(WRITE_TOOL)
         speech = SpeechPipeline(session, self.tts, on_audio)
 
         try:
-            reply = await self._stream_reply(request, speech, on_token, on_emotion, True)
+            reply = await self._stream_reply(request, speech, on_token, on_emotion, True, can_write)
             first_reply: StreamedReply | None = None
             followup_note = ""
 
@@ -524,6 +612,24 @@ class AgentManager:
                         query=query, text=result.text[:SEARCH_HISTORY_CHARS]
                     )
 
+            # Si pidió escribir, teclea y luego confirma sabiendo cómo terminó.
+            elif reply.write_instructions:
+                first_reply = reply
+                if not strip_tags(first_reply.raw_text):
+                    phrase = f"{random.choice(WRITE_PHRASES)} "
+                    await on_token(phrase)
+                    speech.enqueue(phrase)
+                note = self._write_note(await self._write(reply.write_instructions, on_search))
+                extra_messages = [
+                    ChatMessage(role="assistant", content=first_reply.raw_text),
+                    ChatMessage(role="system", content=note),
+                ]
+                request = self.conversation.build_request(self.model, context, extra_messages)
+                reply = await self._stream_reply(
+                    request, speech, on_token, on_emotion, False
+                )
+                followup_note = note
+
             await speech.finish()
         except BaseException:
             # Si la interrumpieron, recuerda hasta dónde llegó; si fue otra cosa, como una
@@ -553,6 +659,7 @@ class AgentManager:
         on_token: TokenHandler,
         on_emotion: EmotionHandler,
         tools_allowed: bool,
+        can_write: bool = False,
     ) -> StreamedReply:
         """Hace una llamada al modelo y entrega lo que va llegando.
 
@@ -562,6 +669,7 @@ class AgentManager:
             on_token: Recibe cada fragmento de texto limpio.
             on_emotion: Recibe el estado emocional cada vez que Nova reacciona.
             tools_allowed: Si Nova todavía puede pedir una foto o una búsqueda en este turno.
+            can_write: Si Carlos pidió en este mensaje que escriba algo; sin esto se ignora la etiqueta.
 
         Returns:
             La respuesta completa y si Nova pidió una foto.
@@ -589,6 +697,9 @@ class AgentManager:
                     break
                 if filtered.search_query and tools_allowed:
                     reply.search_query = filtered.search_query
+                    break
+                if filtered.write_instructions and tools_allowed and can_write:
+                    reply.write_instructions = filtered.write_instructions
                     break
 
         # Libera el texto retenido y la última frase, que puede no tener puntuación.
@@ -667,6 +778,39 @@ class AgentManager:
         if on_search:
             await on_search(SearchDoneEvent(sources=result.sources if result else []))
         return result
+
+    async def _write(self, instructions: str, on_write: SearchHandler | None) -> WriteResult:
+        """Escribe en la app al frente y avisa a la interfaz, que muestra a Nova tecleando.
+
+        Args:
+            instructions: Qué pidió Carlos que se escribiera.
+            on_write: Recibe el inicio y el final.
+
+        Returns:
+            Cómo terminó.
+        """
+        if on_write:
+            await on_write(WriteStartEvent())
+        try:
+            result = await self.writer.write(instructions)
+        finally:
+            if on_write:
+                await on_write(WriteDoneEvent())
+        print(f"[Write] {result.status}", flush=True)
+        return result
+
+    @staticmethod
+    def _write_note(result: WriteResult) -> str:
+        """Redacta para el modelo cómo terminó un intento de escribir.
+
+        Args:
+            result: Resultado.
+
+        Returns:
+            La nota de sistema.
+        """
+        note = next(text for status, text in WRITE_NOTES if status == result.status)
+        return note.format(app=result.app_name)
 
     @staticmethod
     def _search_message(query: str, result: WebSearchResult | None) -> str:
