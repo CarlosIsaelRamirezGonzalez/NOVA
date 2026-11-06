@@ -21,6 +21,7 @@ from services.agents.llms_service import LLMService
 from services.agents.web_search_service import WebSearchService
 from services.agents.writing_service import DesktopWriter
 from services.context.conversation_service import ConversationService
+from services.context.visual_memory_service import VisualMemoryService
 from services.context.memory_service import MemoryService
 from services.context.memory_store import MemoryStore
 from services.context.obsidian_vault import ObsidianVault
@@ -52,8 +53,10 @@ from services.schemas import (
     SearchDoneEvent,
     EmotionComponent,
     GreetingEvent,
+    ForgetVisualRequest,
     MoveEvent,
     SearchStartEvent,
+    VisualProfileRequest,
     WriteDoneEvent,
     WriteStartEvent,
     ServerEvent,
@@ -116,6 +119,7 @@ class NovaServer:
         )
         self.agent.web_search = WebSearchService(self.anthropic, self.usage)
         self.agent.writer = DesktopWriter(self.agent.llm, self.agent.model)
+        self.agent.visual = VisualMemoryService(self.store, self.agent.llm, self.agent.model)
         self.memory = MemoryService(
             self.store,
             VectorIndex(config.vector_path, config.models_path),
@@ -232,6 +236,14 @@ class NovaServer:
                 if isinstance(client_request, UsageRequest):
                     quota = await self.agent.tts.quota(self.session)
                     await self._send(socket, self.usage.report(quota))
+                    continue
+                if isinstance(client_request, VisualProfileRequest):
+                    await self._send(socket, self.agent.visual.report())
+                    continue
+                if isinstance(client_request, ForgetVisualRequest):
+                    self.store.delete_visual_observations(client_request.observation_id)
+                    await self._send(socket, self.agent.visual.report())
+                    await asyncio.to_thread(self.store.sync, True)
                     continue
                 if isinstance(client_request, ForgetMemoryRequest):
                     await self.memory.forget_by_id(client_request.memory_id)

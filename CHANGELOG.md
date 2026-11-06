@@ -2,6 +2,13 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.19.0 · 6 de noviembre de 2026 · Memoria visual
+- Al pedirle que te vea, Nova anota prenda, color, gorra, lentes, cabello y vello facial; la foto no se guarda.
+- Las costumbres se calculan contando, a partir de 5 fotos, y lo reciente pesa más.
+- No hay ningún campo para cuerpo, peso, piel, edad, salud o ánimo, y si sale otra persona no se guarda nada.
+- Vista "Cómo te ve" para revisarlo y borrarlo, y también se puede borrar pidiéndoselo.
+- Falta probarlo con fotos reales: las pruebas usaron imágenes generadas.
+
 ## v0.18.0 · 6 de noviembre de 2026 · Mira cuando se lo pides
 - Nova vuelve a poder ver desde la ventana flotante: si le pides que mire, la cámara se enciende para una sola foto y se apaga.
 - Un punto rojo avisa mientras la cámara está encendida, y solo se le ofrece la foto si lo pides en ese mensaje.

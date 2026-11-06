@@ -28,6 +28,8 @@ from services.schemas import (
     SyncSettings,
     UsageDayRow,
     UsageRecord,
+    VisualObservation,
+    VisualRecord,
 )
 
 SCHEMA_VERSION = 3
@@ -56,6 +58,11 @@ CREATE TABLE IF NOT EXISTS memories (
     source_message_id INTEGER,
     created_at REAL NOT NULL,
     superseded_by INTEGER
+);
+CREATE TABLE IF NOT EXISTS visual_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT NOT NULL,
+    created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS api_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -432,6 +439,58 @@ class MemoryStore:
                 self._overwrite("messages", "id = ?", [message_id])
                 self.connection.execute("DELETE FROM messages WHERE id = ?", (message_id,))
         return len(rows)
+
+    @_serialized
+    def add_visual_observation(self, observation: VisualObservation) -> None:
+        """Guarda lo que se vio en una foto; la foto en sí nunca llega aquí.
+
+        Args:
+            observation: Campos permitidos de la foto.
+        """
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO visual_observations (content, created_at) VALUES (?, ?)",
+                (observation.model_dump_json(), self.clock()),
+            )
+
+    @_serialized
+    def visual_observations(self) -> list[VisualRecord]:
+        """Lee las observaciones visuales.
+
+        Returns:
+            Las observaciones, de la más antigua a la más nueva.
+        """
+        rows = self.connection.execute(
+            "SELECT id, content, created_at FROM visual_observations ORDER BY created_at, id"
+        ).fetchall()
+        return [
+            VisualRecord(
+                id=row[0],
+                created_at=row[2],
+                observation=VisualObservation.model_validate_json(row[1]),
+            )
+            for row in rows
+        ]
+
+    @_serialized
+    def delete_visual_observations(self, observation_id: int | None = None) -> int:
+        """Borra observaciones visuales para siempre.
+
+        Args:
+            observation_id: Observación que se va a borrar; sin ella, se borran todas.
+
+        Returns:
+            Cuántas se borraron.
+        """
+        where = "id = ?" if observation_id is not None else "1 = 1"
+        parameters: list[object] = [observation_id] if observation_id is not None else []
+        count = self.connection.execute(
+            f"SELECT COUNT(*) FROM visual_observations WHERE {where}", parameters
+        ).fetchone()[0]
+        with self.connection:
+            self._overwrite("visual_observations", where, parameters)
+            self.connection.execute(f"DELETE FROM visual_observations WHERE {where}", parameters)
+        return count
 
     def _overwrite(self, table: str, where: str, parameters: list[object]) -> None:
         """Sustituye un texto por relleno del mismo tamaño antes de borrar su fila.

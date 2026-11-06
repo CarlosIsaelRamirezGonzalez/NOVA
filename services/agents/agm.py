@@ -27,6 +27,7 @@ from services.context.emotional_state_service import EmotionalStateService
 from services.context.interruption_service import InterruptionService
 from services.context.memory_service import MemoryService
 from services.context.memory_store import MemoryStore
+from services.context.visual_memory_service import VisualMemoryService
 from services.schemas import (
     ChatMessage,
     ChatRequest,
@@ -113,7 +114,7 @@ CAMERA_TOOL = ToolDefinition(
     name=CAMERA_TOOL_NAME,
     description=(
         "Take one photo with Carlos's camera and see it; if it is off, it turns on just for this. Call "
-        "this whenever he asks what you see (\"¿qué ves?\"), or asks you to look or to "
+        "this whenever he asks what you see (\"¿qué ves?\", \"¿cómo vengo hoy?\"), or asks you to look or to "
         "see, or asks about how he looks or about something or someone he is showing you. It is his "
         "camera and his decision. Never answer about what he is showing without calling it first. "
         "Not needed for ordinary conversation."
@@ -214,7 +215,13 @@ WRITE_NOTES: tuple[tuple[WriteStatus, str], ...] = (
 )
 # Sin la cámara encendida, solo puede tomar la foto si Carlos pide algo así en este mensaje.
 LOOK_REQUEST = re.compile(
-    r"\b(m[ií]r|ve\b|ves\b|ver\b|v[eé]me|veo|checa|observ|f[ií]jate|foto|c[aá]mara|ense[nñ]|muestr)",
+    r"\b(m[ií]r|ve\b|ves\b|ver\b|v[eé]me|veo|checa|observ|f[ií]jate|foto|c[aá]mara|ense[nñ]|muestr"
+    r"|c[oó]mo (?:vengo|ando|voy))",
+    re.IGNORECASE,
+)
+# Si pide olvidar esto, se borra lo que Nova ha notado de cómo se ve.
+VISUAL_FORGET = re.compile(
+    r"(c[oó]mo me (?:visto|veo)|c[oó]mo (?:ando|vengo)|mi ropa|mi aspecto|mi cara|memoria visual)",
     re.IGNORECASE,
 )
 LOOK_PHRASE = "A ver... "
@@ -490,6 +497,7 @@ class AgentManager:
         self.memory: MemoryService | None = None
         self.web_search: WebSearchService | None = None
         self.writer: DesktopWriter | None = None
+        self.visual: VisualMemoryService | None = None
 
     def calm(self) -> None:
         """Calma a Nova y se lo hace saber al modelo.
@@ -577,6 +585,7 @@ class AgentManager:
             self.emotional_state.describe(),
             self.interruptions.describe(),
             camera_context,
+            self.visual.describe_for_model() if self.visual else None,
             TURN_REMINDER,
         ]
         context = "\n\n".join(note for note in notes if note)
@@ -629,6 +638,9 @@ class AgentManager:
                     await on_token(LOOK_PHRASE)
                     speech.enqueue(LOOK_PHRASE)
                 photo = await request_photo()
+                # Los gestos llegan entre corchetes: esas fotos no las pidió él.
+                if self.visual and photo.data_url and not user_input.startswith("["):
+                    self.visual.observe_later(photo.data_url, user_input)
                 extra_messages = [
                     ChatMessage(role="assistant", content=first_reply.raw_text),
                     self._photo_message(photo),
@@ -783,6 +795,9 @@ class AgentManager:
             on_emotion: Recibe el estado emocional cada vez que Nova reacciona.
         """
         forgotten = await self.memory.forget_from_request(user_input)
+        visual_erased = 0
+        if self.visual and VISUAL_FORGET.search(user_input):
+            visual_erased = self.store.delete_visual_observations()
         self.conversation.discard_last_user_message()
         self.conversation.reload()
 
@@ -796,9 +811,9 @@ class AgentManager:
 
         # La confirmación usa los mensajes de este turno sin añadirlos al historial.
         result = (
-            f"You erased {len(forgotten)} memory(ies). Confirm it in one brief line, without "
-            "repeating what it said."
-            if forgotten
+            f"You erased {len(forgotten) + visual_erased} memory(ies). Confirm it in one brief line, "
+            "without repeating what it said."
+            if forgotten or visual_erased
             else "You found no saved memory matching that. Say so briefly, and that any mention of "
             "it in the conversation was erased."
         )

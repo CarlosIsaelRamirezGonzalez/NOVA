@@ -94,6 +94,24 @@ export type Message = {
   sources?: string[] // en una búsqueda, los enlaces de donde salió la información
 }
 
+/** Lo que se ve en una foto; son valores fijos, en inglés como los manda el backend. */
+export type VisualObservation = {
+  person_count: number
+  top_type: string
+  top_color: string
+  headwear: string
+  glasses: string
+  hair_length: string
+  facial_hair: string
+}
+
+/** Lo que Nova ha notado de cómo te ves. */
+export type VisualProfile = {
+  trends: { field: keyof VisualObservation; value: string; count: number; total: number; recent_value: string | null }[]
+  observations: { id: number; created_at: number; observation: VisualObservation }[]
+  min_observations: number
+}
+
 /** Eventos JSON que envía el backend; el audio llega aparte, como binario. */
 type ServerEvent =
   | { type: 'token'; text: string }
@@ -107,6 +125,7 @@ type ServerEvent =
   | { type: 'interrupted' }
   | ({ type: 'brain' } & Brain)
   | ({ type: 'usage' } & Usage)
+  | ({ type: 'visual_profile' } & VisualProfile)
   | { type: 'listen_state'; state: ListenState }
   | { type: 'heard'; text: string }
   | { type: 'greeting' }
@@ -146,6 +165,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
   const [brain, setBrain] = useState<Brain | null>(null)
   const [recall, setRecall] = useState<Recall | null>(null)
   const [usage, setUsage] = useState<Usage | null>(null)
+  const [visualProfile, setVisualProfile] = useState<VisualProfile | null>(null)
   const [listenEnabled, setListenEnabled] = useState(readListenPreference)
   const [listenState, setListenState] = useState<ListenState>('off')
   const latestListenEnabled = useRef(listenEnabled)
@@ -328,6 +348,10 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
           turnFinished.current = false
           setPhase('thinking')
           setMessages((current) => [...current, { id: nextId.current++, role: 'user', text: event.text }])
+          return
+        }
+        if (event.type === 'visual_profile') {
+          setVisualProfile(event)
           return
         }
         if (event.type === 'usage') {
@@ -538,6 +562,20 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'usage' }))
   }, [])
 
+  // Pide lo que Nova ha notado de cómo te ves.
+  const requestVisualProfile = useCallback(() => {
+    const ws = socket.current
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'visual_profile' }))
+  }, [])
+
+  // Borra una observación o, sin indicar cuál, todas.
+  const forgetVisual = useCallback((observationId: number | null) => {
+    const ws = socket.current
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'forget_visual', observation_id: observationId }))
+    }
+  }, [])
+
   // Borra un recuerdo; el servidor responde con el cerebro actualizado.
   const forgetMemory = useCallback((memoryId: number) => {
     const ws = socket.current
@@ -617,6 +655,9 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     requestBrain,
     usage,
     requestUsage,
+    visualProfile,
+    requestVisualProfile,
+    forgetVisual,
     listenEnabled,
     listenState,
     toggleListening,

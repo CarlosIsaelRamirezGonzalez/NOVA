@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { BrainView } from './components/BrainView'
 import { NovaSprite } from './components/NovaSprite'
 import { UsageView } from './components/UsageView'
+import { VisualView } from './components/VisualView'
 import { useCamera } from './hooks/useCamera'
 import { useDictation } from './hooks/useDictation'
 import { useNova, type ListenState } from './hooks/useNova'
@@ -127,6 +128,9 @@ export default function App() {
     requestBrain,
     usage,
     requestUsage,
+    visualProfile,
+    requestVisualProfile,
+    forgetVisual,
     listenEnabled,
     listenState,
     toggleListening,
@@ -139,6 +143,7 @@ export default function App() {
   const [interim, setInterim] = useState('')
   const [brainOpen, setBrainOpen] = useState(false)
   const [usageOpen, setUsageOpen] = useState(false)
+  const [visualOpen, setVisualOpen] = useState(false)
   const transcript = useRef<HTMLDivElement>(null)
   const busy = phase !== 'idle'
 
@@ -386,6 +391,19 @@ export default function App() {
             Cerebro
           </button>
 
+          {/* Abre lo que Nova ha notado de cómo te ves */}
+          <button
+            type="button"
+            onClick={() => {
+              requestVisualProfile()
+              setVisualOpen(true)
+            }}
+            disabled={!connected}
+            className="rounded-full border border-line px-3 py-1 font-pixel text-sm text-cream outline-none hover:bg-panel focus-visible:border-glow disabled:opacity-40"
+          >
+            Cómo te ve
+          </button>
+
           {/* Abre la vista de gastos de las APIs */}
           <button
             type="button"
@@ -426,6 +444,11 @@ export default function App() {
 
       {/* Sus gastos, a pantalla completa */}
       {usageOpen && <UsageView usage={usage} onClose={() => setUsageOpen(false)} />}
+
+      {/* Lo que ha notado de cómo te ves, a pantalla completa */}
+      {visualOpen && (
+        <VisualView profile={visualProfile} onForget={forgetVisual} onClose={() => setVisualOpen(false)} />
+      )}
 
       {/* Vista previa en espejo: muestra lo que puede ver Nova */}
       {camera.active && (

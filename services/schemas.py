@@ -311,6 +311,66 @@ class FilteredText(BaseModel):
     move_place: MovePlace | None = None
 
 
+class VisualObservation(BaseModel):
+    """Lo que se puede guardar de una foto. Son valores fijos a propósito: no existe un campo
+    donde quepan peso, cuerpo, piel, edad, salud o estado de ánimo.
+
+    Attributes:
+        person_count: Cuántas personas se ven.
+        top_type: Prenda superior.
+        top_color: Color principal de esa prenda.
+        headwear: Qué lleva en la cabeza.
+        glasses: Si usa lentes.
+        hair_length: Largo del cabello.
+        facial_hair: Vello facial.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    person_count: int
+    top_type: Literal["t_shirt", "shirt", "polo", "hoodie", "sweater", "jacket", "tank_top", "other", "unknown"]
+    top_color: Literal[
+        "black", "white", "gray", "blue", "red", "green", "yellow", "orange", "purple", "pink",
+        "brown", "beige", "patterned", "unknown",
+    ]
+    headwear: Literal["none", "cap", "beanie", "hood", "other", "unknown"]
+    glasses: Literal["yes", "no", "unknown"]
+    hair_length: Literal["shaved", "short", "medium", "long", "unknown"]
+    facial_hair: Literal["none", "stubble", "beard", "mustache", "unknown"]
+
+
+class VisualRecord(BaseModel):
+    """Una observación guardada.
+
+    Attributes:
+        id: Identificador.
+        created_at: Momento de la foto, en segundos.
+        observation: Lo que se vio.
+    """
+
+    id: int
+    created_at: float
+    observation: VisualObservation
+
+
+class VisualTrend(BaseModel):
+    """Una costumbre calculada a partir de las observaciones.
+
+    Attributes:
+        field: Campo de la observación.
+        value: Valor de costumbre.
+        count: Fotos en que aparece.
+        total: Fotos en que ese campo se pudo ver.
+        recent_value: Valor distinto en las últimas fotos, si cambió.
+    """
+
+    field: str
+    value: str
+    count: int
+    total: int
+    recent_value: str | None = None
+
+
 class ForgetDecision(BaseModel):
     """Lo que decide el modelo que resuelve qué quiere olvidar Carlos.
 
@@ -530,6 +590,28 @@ class BrainRequest(BaseModel):
     type: Literal["brain"] = "brain"
 
 
+class VisualProfileRequest(BaseModel):
+    """Petición del navegador para ver la memoria visual.
+
+    Attributes:
+        type: Discriminador de la petición.
+    """
+
+    type: Literal["visual_profile"] = "visual_profile"
+
+
+class ForgetVisualRequest(BaseModel):
+    """Petición del navegador para borrar observaciones visuales.
+
+    Attributes:
+        type: Discriminador de la petición.
+        observation_id: Observación que se va a borrar; sin ella, se borran todas.
+    """
+
+    type: Literal["forget_visual"] = "forget_visual"
+    observation_id: int | None = None
+
+
 class ForgetMemoryRequest(BaseModel):
     """Petición del navegador para borrar un recuerdo concreto.
 
@@ -742,6 +824,22 @@ class UsageServiceTotal(UsageRecord):
     """
 
     calls: int
+
+
+class VisualProfileEvent(BaseModel):
+    """Lo que muestra la vista de la memoria visual.
+
+    Attributes:
+        type: Discriminador del evento.
+        trends: Costumbres con evidencia suficiente.
+        observations: Observaciones, de la más nueva a la más antigua.
+        min_observations: Cuántas se necesitan para hablar de una costumbre.
+    """
+
+    type: Literal["visual_profile"] = "visual_profile"
+    trends: list[VisualTrend]
+    observations: list[VisualRecord]
+    min_observations: int
 
 
 class UsageEvent(BaseModel):
@@ -997,6 +1095,7 @@ ServerEvent = (
     | SearchStartEvent
     | SearchDoneEvent
     | MoveEvent
+    | VisualProfileEvent
     | WriteStartEvent
     | WriteDoneEvent
     | GestureReactionEvent
@@ -1017,7 +1116,9 @@ CLIENT_REQUEST = TypeAdapter(
         | UsageRequest
         | ListenRequest
         | MicGateRequest
-        | ForgetMemoryRequest,
+        | ForgetMemoryRequest
+        | VisualProfileRequest
+        | ForgetVisualRequest,
         Field(discriminator="type"),
     ]
 )

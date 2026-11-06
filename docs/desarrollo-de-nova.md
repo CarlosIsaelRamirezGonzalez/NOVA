@@ -40,6 +40,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | 24. Te saluda | `v0.16.0` | Decir "Oye Nova" y que salga a saludar con la mano | Aparecer no bastaba: se iba volando sin decir nada. El saludo se guarda para no pagarlo cada vez |
 | 25. Se marea | `v0.17.0` | Agarrarla, sacudirla y verla tambalearse con estrellitas | Se detecta contando cambios bruscos de dirección, para que moverla normal no la maree |
 | 26. Mira cuando se lo pides | `v0.18.0` | Pedirle "mira esto" y ver el punto rojo prenderse solo esa vez | Flotar le había quitado la vista sin que nadie lo notara; volvió con la cámara apagada por defecto |
+| 27. Memoria visual | `v0.19.0` | Pedirle "¿cómo vengo hoy?" varios días y abrir "Cómo te ve" | Qué se guarda se limitó con el esquema: lo que no tiene campo no se puede guardar |
 
 ## Decisiones y por qué
 | Decisión | Alternativa | Motivo |
@@ -56,6 +57,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | Electron | Tauri | Sin instalar Rust, y usa el mismo Chromium donde ya se probó la animación |
 | Teclear sin Enter, con reglas en el código | Confiar en lo que diga el prompt | Una instrucción se puede ignorar; un carácter que se quita antes de teclear, no |
 | Un redactor aparte, sin herramientas ni memoria | Darle la captura a Nova | Un mensaje en pantalla que intente darle órdenes solo puede cambiar el texto, que tú revisas |
+| Observaciones con valores fijos, contadas por código | Guardar fotos o dejar que el modelo resuma | Sin fotos en disco, sin datos de cuerpo o salud, y sin costumbres inventadas |
 
 ## Cifras para contar
 | Qué se midió | Resultado |
