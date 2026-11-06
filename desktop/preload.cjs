@@ -8,8 +8,9 @@ contextBridge.exposeInMainWorld('novaDesktop', {
   moveDrag: (screenX, screenY) => ipcRenderer.send('drag-move', screenX, screenY),
   endDrag: () => ipcRenderer.send('drag-end'),
   moveTo: (place) => ipcRenderer.send('move-to', place),
+  pauseWander: (paused) => ipcRenderer.send('pause-wander', paused),
   onTravel: (handler) => {
-    const listener = (_event, vx, vy) => handler(vx, vy)
+    const listener = (_event, vx, vy, headingX, headingY) => handler(vx, vy, headingX, headingY)
     ipcRenderer.on('window-travel', listener)
     return () => ipcRenderer.removeListener('window-travel', listener)
   },

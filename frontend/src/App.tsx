@@ -173,6 +173,14 @@ export default function App() {
     Boolean(notice) || listenState === 'conversing',
   )
 
+  // Con la compu abierta se queda en su lugar: no va a teclear volando.
+  const isUsingLaptop = webSearch !== 'none'
+  useEffect(() => {
+    if (!IS_WIDGET) return
+    const bridge = (window as unknown as { novaDesktop?: { pauseWander: (paused: boolean) => void } }).novaDesktop
+    bridge?.pauseWander(isUsingLaptop)
+  }, [isUsingLaptop])
+
   // Flotando, siempre está atenta a su nombre; también pide el permiso del micrófono si hace falta.
   const micStarted = useRef(false)
   useEffect(() => {

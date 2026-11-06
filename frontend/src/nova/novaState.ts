@@ -20,6 +20,8 @@ import { hex, mix, type RGB } from './pixelBuffer'
 export const CANVAS_SIZE = 160
 /** Fila en la que flota el centro de la cabeza. */
 export const HEAD_Y = 78
+/** Cuánto gira hacia un lado, en radianes: de frente es 0, y aquí ya se ve casi de perfil. */
+export const MAX_YAW = 1.1
 const APPEAR_SECONDS = 1.5
 const MAX_PARTICLES = 90
 const WANDER_AFTER_SECONDS = 4
@@ -48,7 +50,8 @@ export type NovaInput = {
   pointer: { x: number; y: number } | null // en coordenadas del lienzo
   lookAtInput: boolean
   reducedMotion: boolean
-  grab: { held: boolean; vx: number; vy: number } // si la están cargando y a qué velocidad, en px/s
+  // Si la están cargando, a qué velocidad va en px/s, y hacia dónde se dirige por su cuenta.
+  grab: { held: boolean; vx: number; vy: number; heading: { x: number; y: number } | null }
 }
 
 /** Estado completo de la animación; se conserva entre un cuadro y otro. */
@@ -93,6 +96,9 @@ export type NovaState = {
   grabVx: number // velocidad horizontal al arrastrarla, suavizada
   grabVy: number // velocidad vertical al arrastrarla, suavizada
   wasHeld: boolean // si en el paso anterior la estaban cargando
+  headYaw: number // giro de la cabeza, en radianes; positivo hacia la derecha de la pantalla
+  headYawVelocity: number // la cabeza se pasa un poco al voltear, y regresa
+  bodyYaw: number // giro del cuerpo, que sigue a la cabeza con retraso
   keying: number // qué tan rápido teclea, de 0 a 1; se detiene mientras cuenta lo que encontró
   reachLeft: number // cuánto sube la mano izquierda al teclear, en píxeles
   reachRight: number // cuánto sube la mano derecha al teclear, en píxeles
@@ -145,6 +151,9 @@ export function createNovaState(): NovaState {
     grabVx: 0,
     grabVy: 0,
     wasHeld: false,
+    headYaw: 0,
+    headYawVelocity: 0,
+    bodyYaw: 0,
     typing: 0,
     keying: 0,
     reachLeft: 0,
@@ -415,6 +424,17 @@ function targetPose(input: NovaInput): Pose {
       lift: base.lift - 5,
     }
   }
+  // Va volando: lleva los brazos hacia el frente, y si no siente nada en particular, va contenta.
+  if (Math.hypot(input.grab.vx, input.grab.vy) > 20) {
+    return {
+      ...base,
+      armLeft: 1.25,
+      armRight: 1.25,
+      hairWild: Math.max(base.hairWild, 1.1),
+      bobHeight: base.bobHeight * 0.5,
+      eyeSmile: input.blend.length === 0 ? Math.max(base.eyeSmile, 0.3) : base.eyeSmile,
+    }
+  }
   if (input.activity === 'thinking') {
     return {
       ...base,
@@ -554,6 +574,10 @@ export function stepNova(state: NovaState, input: NovaInput) {
     // Mira hacia donde la llevan.
     gazeX = clamp(state.grabVx * 0.004, -1, 1)
     gazeY = clamp(state.grabVy * 0.004, -1, 1)
+  } else if (input.grab.heading) {
+    // Mira a dónde va, también un momento antes de arrancar.
+    gazeX = input.grab.heading.x
+    gazeY = input.grab.heading.y
   } else if (reading) {
     // Te cuenta lo que encontró: te mira y de vez en cuando vuelve a revisar la pantalla.
     const checksScreen = Math.sin(state.time * 0.9) > 0.55
@@ -577,6 +601,19 @@ export function stepNova(state: NovaState, input: NovaInput) {
   }
   state.lookX = approach(state.lookX, clamp(gazeX + acting.gazeX, -1, 1), 14, dt)
   state.lookY = approach(state.lookY, gazeY, 9, dt)
+
+  // Voltea el cuerpo según a dónde va; de vez en cuando se gira un poco solo por mirar algo.
+  // La cabeza llega primero y se pasa tantito; el cuerpo la sigue. Con la compu sigue de frente.
+  const carriedTurn = held ? clamp(state.grabVx / 250, -1, 1) : 0
+  const travelTurn = input.grab.heading ? input.grab.heading.x : carriedTurn
+  const frontFacing = 1 - state.typing
+  const headGoal = (travelTurn * MAX_YAW + state.lookX * 0.32) * frontFacing
+  const bodyGoal = (travelTurn * MAX_YAW * 0.85 + state.lookX * 0.1) * frontFacing
+  // Al cambiar de lado parpadea, como en los dibujos animados: oculta el giro y lo hace más vivo.
+  if (Math.abs(headGoal - state.headYaw) > 1.2 && state.blink <= 0) state.blink = 1
+  state.headYawVelocity += (70 * (headGoal - state.headYaw) - 11 * state.headYawVelocity) * dt
+  state.headYaw = clamp(state.headYaw + state.headYawVelocity * dt, -MAX_YAW * 1.08, MAX_YAW * 1.08)
+  state.bodyYaw = approach(state.bodyYaw, bodyGoal, 6, dt)
 
   // Se desplaza con un resorte hacia el cursor.
   const previousX = state.x
@@ -642,8 +679,9 @@ export function stepNova(state: NovaState, input: NovaInput) {
     const direction = Math.max(speed, 1)
     emit(state, {
       kind: 'star',
-      x: headX + random(-14, 14),
-      y: headY + random(-14, 26),
+      // Salen de detrás de ella: encima de la cara parecerían manchas en el visor.
+      x: headX - (state.grabVx / direction) * 24 + random(-8, 8),
+      y: headY - (state.grabVy / direction) * 24 + random(-10, 22),
       vx: (-state.grabVx / direction) * random(24, 60),
       vy: (-state.grabVy / direction) * random(24, 60),
       life: random(0.3, 0.6),

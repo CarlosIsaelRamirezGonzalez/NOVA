@@ -2,6 +2,14 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.13.0 · 6 de noviembre de 2026 · Nova voltea
+- Mira a dónde va: primero voltea hacia allá, luego arranca poco a poco y frena al llegar.
+- Se ve casi de perfil al moverse a un lado: la cara se recorre, el cuerpo la sigue y el ojo lejano se oculta.
+- Partes nuevas: audífono con aleta en la nuca, brazo del otro lado en sombra y pecho de perfil.
+- Al volar lleva los brazos al frente, las llamas se van con el viento y la cola se curva hacia atrás.
+- Parpadea al cambiar de lado, y se gira un poco cuando solo está mirando algo.
+- De frente se ve igual que antes; con la compu abierta deja de pasear y se queda de frente.
+
 ## v0.12.0 · 6 de noviembre de 2026 · Nova de escritorio, como mascota
 - El micrófono flotante se enciende solo y Nova se oculta aunque esté escuchando: solo aparece si la llamas.
 - Tras responderte se queda unos 12 segundos; si le hablas en ese rato, responde y vuelve a aparecer.

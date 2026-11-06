@@ -19,6 +19,10 @@ const WANDER_MIN_DISTANCE = 220
 const WANDER_REST_MS = { min: 2500, max: 6000 }
 // Si le pides que se quite, no regresa paseando a tapar lo que estás viendo.
 const COMMAND_REST_MS = 45_000
+// Primero voltea a ver a dónde va y luego arranca poco a poco.
+const WANDER_LOOK_AHEAD_MS = 550
+const COMMAND_LOOK_AHEAD_MS = 160
+const SPEED_UP_MS = 450
 // Frena al llegar, en vez de detenerse de golpe.
 const ARRIVAL_EASE_PX = 140
 // Solo se detiene si estás usando el mouse encima de ella: un cursor olvidado no la atrapa.
@@ -35,6 +39,7 @@ let travel = null
 let travelTimer = null
 let wanderEnabled = true
 let nextWanderAt = 0
+let wanderPaused = false
 let lastCursor = { x: 0, y: 0 }
 let lastCursorMoveAt = 0
 
@@ -139,12 +144,19 @@ function pickWanderTarget() {
   for (let attempt = 0; attempt < 8 && Math.hypot(target.x - x, target.y - y) < WANDER_MIN_DISTANCE; attempt += 1) {
     target = pick()
   }
-  return { ...target, speed: WANDER_SPEED, isWander: true }
+  return { ...target, speed: WANDER_SPEED, isWander: true, startsAt: Date.now() + WANDER_LOOK_AHEAD_MS }
 }
 
-/** Avisa a la interfaz a qué velocidad va la ventana, para animar el cuerpo. */
-function sendTravelSpeed(vx, vy) {
-  widget?.webContents.send('window-travel', vx, vy)
+/**
+ * Avisa a la interfaz cómo se mueve la ventana, para animar el cuerpo y la mirada.
+ *
+ * @param {number} vx - Velocidad horizontal, en píxeles por segundo.
+ * @param {number} vy - Velocidad vertical, en píxeles por segundo.
+ * @param {number} headingX - Parte horizontal de la dirección a la que va, de -1 a 1.
+ * @param {number} headingY - Parte vertical de esa dirección; ambas en cero si no va a ningún lado.
+ */
+function sendTravel(vx, vy, headingX, headingY) {
+  widget?.webContents.send('window-travel', vx, vy, headingX, headingY)
 }
 
 /** Avanza un paso del viaje actual, o decide el siguiente paseo. */
@@ -153,8 +165,10 @@ function stepTravel() {
 
   // Un paseo espera si la estás tocando; lo que le pediste, no.
   const isBlocked = cursorIsBusyOverWidget() && (!travel || travel.isWander)
-  if (isBlocked) {
-    sendTravelSpeed(0, 0)
+  const isPaused = wanderPaused && travel?.isWander !== false
+  if (isBlocked || isPaused) {
+    if (isPaused) travel = null
+    sendTravel(0, 0, 0, 0)
     return
   }
   if (!travel) {
@@ -164,9 +178,18 @@ function stepTravel() {
 
   const [x, y] = widget.getPosition()
   const distance = Math.hypot(travel.x - x, travel.y - y)
+  const headingX = (travel.x - x) / Math.max(distance, 1)
+  const headingY = (travel.y - y) / Math.max(distance, 1)
+  const elapsed = Date.now() - travel.startsAt
+
+  // Todavía no arranca: solo voltea a ver hacia allá.
+  if (elapsed < 0) {
+    sendTravel(0, 0, headingX, headingY)
+    return
+  }
   if (distance < 2) {
     widget.setPosition(Math.round(travel.x), Math.round(travel.y))
-    sendTravelSpeed(0, 0)
+    sendTravel(0, 0, 0, 0)
     savePosition()
     if (travel.isWander) {
       nextWanderAt = Date.now() + WANDER_REST_MS.min + Math.random() * (WANDER_REST_MS.max - WANDER_REST_MS.min)
@@ -174,15 +197,11 @@ function stepTravel() {
     travel = null
     return
   }
-  const speed = Math.max(40, travel.speed * Math.min(1, distance / ARRIVAL_EASE_PX))
+  const speedUp = Math.min(1, 0.15 + elapsed / SPEED_UP_MS)
+  const speed = Math.max(40, travel.speed * speedUp * Math.min(1, distance / ARRIVAL_EASE_PX))
   const step = Math.max(2, Math.min(distance, (speed * TRAVEL_TICK_MS) / 1000))
-  const vx = ((travel.x - x) / distance) * speed
-  const vy = ((travel.y - y) / distance) * speed
-  widget.setPosition(
-    Math.round(x + ((travel.x - x) / distance) * step),
-    Math.round(y + ((travel.y - y) / distance) * step),
-  )
-  sendTravelSpeed(vx, vy)
+  widget.setPosition(Math.round(x + headingX * step), Math.round(y + headingY * step))
+  sendTravel(headingX * speed, headingY * speed, headingX, headingY)
 }
 
 /**
@@ -193,7 +212,10 @@ function stepTravel() {
 function setTravelLoop(isVisible) {
   if (travelTimer) clearInterval(travelTimer)
   travelTimer = isVisible ? setInterval(stepTravel, TRAVEL_TICK_MS) : null
-  if (!isVisible) travel = null
+  if (!isVisible) {
+    travel = null
+    sendTravel(0, 0, 0, 0)
+  }
 }
 
 /** Si el cursor está en otra pantalla, aparece en esa, que es donde la estás ocupando. */
@@ -271,7 +293,7 @@ function handleMoveCommand(place) {
   if (place === 'stay') {
     wanderEnabled = false
     travel = null
-    sendTravelSpeed(0, 0)
+    sendTravel(0, 0, 0, 0)
     return
   }
   if (place === 'roam') {
@@ -281,7 +303,7 @@ function handleMoveCommand(place) {
   }
   const target = commandTarget(place)
   if (!target) return
-  travel = { ...target, speed: COMMAND_SPEED, isWander: false }
+  travel = { ...target, speed: COMMAND_SPEED, isWander: false, startsAt: Date.now() + COMMAND_LOOK_AHEAD_MS }
   nextWanderAt = Date.now() + COMMAND_REST_MS
 }
 
@@ -498,6 +520,9 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   ipcMain.on('move-to', (_event, place) => handleMoveCommand(place))
+  ipcMain.on('pause-wander', (_event, paused) => {
+    wanderPaused = paused
+  })
 
   // El permiso del micrófono se pide hasta que enciendes el micrófono.
   ipcMain.handle('request-microphone', () => systemPreferences.askForMediaAccess('microphone'))

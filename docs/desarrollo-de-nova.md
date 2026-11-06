@@ -34,6 +34,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | 18. Aparece cuando la llamas | `v0.10.0` | El escritorio vacío, decir "Nova" y verla salir del portal | Oculta tenía que seguir oyendo: la ventana se esconde, pero nunca se apaga |
 | 19. Manos en la compu | `v0.11.0` | Pedirle que termine un mensaje de prueba y verla teclear | Antes de darle manos se le quitó el chantaje, y el Enter se eliminó desde el código |
 | 20. Una mascota en el escritorio | `v0.12.0` | Decirle "muévete, no me dejas ver" y verla volar a otra esquina | Ocultarla no era apagarla: tuvo que aparecer solo cuando se le llama |
+| 21. Nova voltea | `v0.13.0` | Verla girar y volar de perfil de un lado a otro | Sin dibujar cada ángulo: la cabeza se calcula como algo redondo, y en la primera prueba el audífono parecía otro ojo |
 
 ## Decisiones y por qué
 | Decisión | Alternativa | Motivo |

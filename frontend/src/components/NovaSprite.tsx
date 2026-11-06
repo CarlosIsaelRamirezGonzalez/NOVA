@@ -23,7 +23,7 @@ const DRAG_THRESHOLD_PX = 4
 
 /** Funciones de la app de escritorio para mover la ventana; en el navegador no existen. */
 type DragBridge = {
-  onTravel?: (handler: (vx: number, vy: number) => void) => () => void
+  onTravel?: (handler: (vx: number, vy: number, headingX: number, headingY: number) => void) => () => void
   startDrag: (screenX: number, screenY: number) => void
   moveDrag: (screenX: number, screenY: number) => void
   endDrag: () => void
@@ -110,7 +110,7 @@ export function NovaSprite({
       }
     }
     // Velocidad y estado del arrastre; en el navegador no hay ventana que mover.
-    const grab = { held: false, vx: 0, vy: 0 }
+    const grab = { held: false, vx: 0, vy: 0, heading: null as { x: number; y: number } | null }
     let press: { x: number; y: number; moved: boolean; lastX: number; lastY: number; lastAt: number } | null = null
 
     // Al tomarla, se sigue al cursor aunque la ventana se mueva debajo de él.
@@ -127,6 +127,7 @@ export function NovaSprite({
       if (dragBridge) {
         dragBridge.startDrag(event.screenX, event.screenY)
         grab.held = true
+        grab.heading = null
       }
     }
 
@@ -158,10 +159,11 @@ export function NovaSprite({
       dragBridge?.endDrag()
     }
     // Cuando se mueve sola, la velocidad de la ventana anima el cuerpo igual que al cargarla.
-    const stopTravel = dragBridge?.onTravel?.((vx, vy) => {
+    const stopTravel = dragBridge?.onTravel?.((vx, vy, headingX, headingY) => {
       if (grab.held) return
       grab.vx = vx
       grab.vy = vy
+      grab.heading = headingX || headingY ? { x: headingX, y: headingY } : null
     })
     addEventListener('pointermove', onPointerMove)
     element.addEventListener('pointerdown', onPointerDown)
@@ -208,7 +210,7 @@ export function NovaSprite({
         dt,
         blend: grab.held ? GRAB_BLEND : now < pokedUntil ? POKE_BLEND : current.blend,
         // Si el cursor se detiene, ya no llegan eventos: la velocidad se apaga sola.
-        grab: { held: grab.held, vx: grab.vx, vy: grab.vy },
+        grab,
         activity: current.activity,
         level: Math.min(1, Math.max(0, (getLevel() - SILENCE) * SENSITIVITY)),
         pointer: gazeTarget,
