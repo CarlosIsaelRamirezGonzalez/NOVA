@@ -36,6 +36,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | 20. Una mascota en el escritorio | `v0.12.0` | Decirle "muévete, no me dejas ver" y verla volar a otra esquina | Ocultarla no era apagarla: tuvo que aparecer solo cuando se le llama |
 | 21. Nova voltea | `v0.13.0` | Verla girar y volar de perfil de un lado a otro | Sin dibujar cada ángulo: la cabeza se calcula como algo redondo, y en la primera prueba el audífono parecía otro ojo |
 | 22. La vuelta completa y el baile | `v0.14.2` | Comparar la hoja del personaje con Nova de perfil y de espaldas, y darle una gran noticia para que baile | Se dibujó sin revisar la hoja del personaje: las antenas y las costuras inventadas se quitaron |
+| 23. Igual a su hoja | `v0.15.0` | La hoja del personaje junto a Nova redibujada, y luego bailando | Se midió la hoja en lugar de calcular a ojo: el mismo código ahora dibuja las tres vistas |
 
 ## Decisiones y por qué
 | Decisión | Alternativa | Motivo |

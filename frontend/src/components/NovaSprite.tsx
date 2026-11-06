@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { describeBlend, type Activity, type EmotionBlend } from '../nova/emotions'
-import { CANVAS_SIZE, createNovaState, flinch, poke, soothe, stepNova, showBack, startSpin } from '../nova/novaState'
+import { CANVAS_SIZE, createNovaState, flinch, poke, soothe, stepNova, showBack, startDance, startSpin } from '../nova/novaState'
 import { PixelBuffer } from '../nova/pixelBuffer'
 import { renderNova } from '../nova/renderNova'
 
@@ -171,6 +171,7 @@ export function NovaSprite({
     const stopPose = dragBridge?.onPose?.((pose) => {
       if (pose === 'spin') startSpin(state)
       if (pose === 'show_back') showBack(state)
+      if (pose === 'dance') startDance(state)
     })
     addEventListener('pointermove', onPointerMove)
     element.addEventListener('pointerdown', onPointerDown)

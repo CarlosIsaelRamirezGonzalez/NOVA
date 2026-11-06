@@ -294,7 +294,7 @@ function handleMoveCommand(place) {
     widget.webContents.send('presence-command', 'dismiss')
     return
   }
-  if (place === 'spin' || place === 'show_back') {
+  if (place === 'spin' || place === 'show_back' || place === 'dance') {
     widget.webContents.send('nova-pose', place)
     return
   }

@@ -81,11 +81,12 @@ export type Pose = {
 
 /** Llamas azul y violeta del boceto original. */
 const BASE_RAMP: FlameRamp = {
-  back: hex('#2B1E7A'),
-  deep: hex('#4A34C4'),
-  mid: hex('#6F7CFF'),
-  light: hex('#A9D6FF'),
-  core: hex('#E9C6FF'),
+  // Colores de la paleta de la hoja del personaje.
+  back: hex('#412CA3'),
+  deep: hex('#5844CA'),
+  mid: hex('#6077F7'),
+  light: hex('#A7CDFE'),
+  core: hex('#FEE7C5'),
 }
 
 /** Pose tranquila; las demás emociones parten de ella y cambian lo necesario. */
@@ -103,8 +104,8 @@ const BASE: Pose = {
   bobSpeed: 1.7,
   lift: 0,
   // Forma de los ojos.
-  eyeWidth: 2.8,
-  eyeHeight: 11,
+  eyeWidth: 2.2,
+  eyeHeight: 10,
   eyeSlant: 0,
   eyeSmile: 0,
   eyeRightScale: 1,

@@ -145,7 +145,7 @@ MOVE_TOOL = ToolDefinition(
         "just says to move; a direction or corner if he names one; stay to stop wandering; roam to "
         "wander freely again; hide to disappear until he calls you; spin to do a full turn when he asks "
         "you to turn around or spin (\"da una vuelta\"); show_back to show him your back for a moment "
-        "(\"voltéate\", \"enséñame la espalda\")."
+        "(\"voltéate\", \"enséñame la espalda\"); dance when he asks you to dance (\"baila\")."
     ),
     parameters=MoveArguments.model_json_schema(),
 )
@@ -157,6 +157,7 @@ MOVE_FIXED_PHRASES: tuple[tuple[MovePlace, str], ...] = (
     ("roam", "¡Va, a pasear!"),
     ("spin", "¡Mira!"),
     ("show_back", "A ver, ¿así?"),
+    ("dance", "¡Va, mira!"),
 )
 WRITE_PHRASES = ("Va, te lo escribo.", "Déjame escribirlo.", "Ahorita te lo pongo.")
 # El historial guarda solo lo que aquí se dice: nunca la captura ni el texto redactado.

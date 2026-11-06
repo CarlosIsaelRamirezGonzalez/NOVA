@@ -2,6 +2,12 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.15.0 · 6 de noviembre de 2026 · Nova, igual a su hoja
+- Se redibujó a Nova con las medidas y la paleta de la hoja del personaje, en sus tres vistas.
+- Llamas nuevas: lenguas onduladas que rematan en gancho, juntas en una sola masa, con brillos sueltos.
+- Cuerpo más ancho, brazos más gorditos y largos, cabeza y visor más anchos, N más gruesa y cola en punta.
+- Se le puede pedir que baile; también sigue bailando sola si algo la emociona mucho.
+
 ## v0.14.2 · 6 de noviembre de 2026 · Fiel a la hoja del personaje
 - De espaldas, el fuego cubre toda la nuca, como en la referencia; ya no se ve el casco ni las costuras que se habían inventado.
 - De perfil: visor más grande, un solo ojo, sin gema, con la bisagra del casco y un solo brazo que cuelga hacia atrás.

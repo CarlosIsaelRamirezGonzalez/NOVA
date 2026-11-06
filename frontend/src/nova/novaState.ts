@@ -19,7 +19,7 @@ import { hex, mix, type RGB } from './pixelBuffer'
 /** Lado del lienzo en píxeles reales. */
 export const CANVAS_SIZE = 160
 /** Fila en la que flota el centro de la cabeza. */
-export const HEAD_Y = 78
+export const HEAD_Y = 74
 /** Cuánto gira hacia un lado, en radianes: de frente es 0, y aquí ya se ve casi de perfil. */
 export const MAX_YAW = 1.1
 const APPEAR_SECONDS = 1.5
@@ -30,7 +30,7 @@ const SPIN_SECONDS = 1.15
 const BACK_VIEW_ANGLE = 2.6
 // Baila si la alegría o la sorpresa llegan a este nivel de golpe; una buena noticia común no basta.
 const DANCE_THRESHOLD = 0.7
-const DANCE_JUMP = 0.1
+const DANCE_JUMP = 0.05
 const DANCE_SECONDS = 3.8
 const DANCE_BEAT = 6.5
 const DANCE_SPIN_AT = 1.5
@@ -408,6 +408,15 @@ export function soothe(state: NovaState) {
       color: hex('#BFE6FF'),
     })
   }
+}
+
+/**
+ * Hace que baile, por ejemplo si se lo pides.
+ *
+ * @param state - Estado de la animación.
+ */
+export function startDance(state: NovaState) {
+  if (state.dance < 0) state.dance = 0
 }
 
 /**

@@ -13,7 +13,7 @@ const TAIL = pack(hex('#5B46C4'))
 const TAIL_DARK = pack(hex('#3A2A9C'))
 const VISOR = pack(hex('#0D0C33'))
 const VISOR_EDGE = pack(hex('#262268'))
-const CHEST = pack(hex('#30238E'))
+const CHEST = pack(hex('#3A2A9C'))
 
 // Colores de la compu: la luz de su pantalla, que ilumina a Nova.
 const SCREEN_LIGHT = hex('#7FE3FF')
@@ -26,7 +26,7 @@ const PORTAL_MID = hex('#4A3DE0')
 const PORTAL_BRIGHT = hex('#8FA2FF')
 
 // Mapas de bits de la letra del pecho y de algunas partículas.
-const LETTER_N = ['#    #', '##   #', '# #  #', '#  # #', '#   ##', '#    #', '#    #']
+const LETTER_N = ['##   ##', '###  ##', '###  ##', '## # ##', '## # ##', '##  ###', '##  ###', '##   ##']
 // Señales que acompañan a cada emoción, como en un cómic.
 const CLOUD = ['   ###    ', ' ####### ', '##########', '##########', ' ######## ']
 const ANGER_MARK = ['## ##', '#   #', '     ', '#   #', '## ##']
@@ -39,8 +39,13 @@ const NOTE = ['  ## ', '  # #', '  #  ', '  #  ', '###  ', '###  ']
 const QUESTION = [' ### ', '#   #', '    #', '  ## ', '  #  ', '     ', '  #  ']
 
 // La cabeza y el cuerpo se dibujan como si fueran redondos: al girar, todo se recorre sobre ellos.
-const HEAD_RADIUS = 20.9
-const BODY_RADIUS = 11
+const HEAD_RADIUS = 25
+const BODY_RADIUS = 14
+// Medidas tomadas de la hoja del personaje.
+const HELMET_RX = 24.5
+const HELMET_RY = 20.5
+const VISOR_RY = 14.4
+const ARM_REACH = 22
 // De perfil, el visor ocupa más del casco, como en la hoja de referencia del personaje.
 const VISOR_ANGLE = 0.95
 const VISOR_PROFILE_ANGLE = 0.4
@@ -50,26 +55,24 @@ const FACE_TURN = 0.7
 const GEM_TURN = 1.2
 // Si el visor se ve más angosto que esto, ya quedó del otro lado de la cabeza.
 const MIN_VISOR_HALF = 2.5
-// Llamas que cubren toda la nuca: nacen del cuello y suben por encima del casco.
+// Hojas de fuego que cubren toda la nuca: nacen del cuello y suben por encima del casco.
 const NAPE_PETALS = [
-  { angle: -1.42, length: 30, width: 9, seed: 1 },
-  { angle: 1.44, length: 29, width: 9, seed: 2 },
-  { angle: -1.2, length: 36, width: 12, seed: 3 },
-  { angle: 1.22, length: 35, width: 12, seed: 4 },
-  { angle: -0.8, length: 43, width: 13, seed: 5 },
-  { angle: 0.82, length: 42, width: 13, seed: 6 },
-  { angle: -0.4, length: 48, width: 13, seed: 7 },
-  { angle: 0.42, length: 47, width: 13, seed: 8 },
-  { angle: 0.02, length: 56, width: 12, seed: 9 },
+  { angle: -1.5, length: 34, width: 8, seed: 1 },
+  { angle: 1.52, length: 33, width: 8, seed: 2 },
+  { angle: -1.14, length: 38, width: 12, seed: 3 },
+  { angle: 1.16, length: 37, width: 12, seed: 4 },
+  { angle: -0.74, length: 44, width: 13, seed: 5 },
+  { angle: 0.76, length: 43, width: 13, seed: 6 },
+  { angle: -0.34, length: 48, width: 13, seed: 7 },
+  { angle: 0.36, length: 47, width: 13, seed: 8 },
+  { angle: 0.02, length: 52, width: 12, seed: 9 },
 ]
-const NAPE_BASE_Y = 12
+const NAPE_BASE_Y = 16
 // Hasta que la nuca queda bastante de frente, el casco aún se ve y las llamas siguen detrás.
 const NAPE_STARTS_AT = 0.6
 const NAPE_FULL_AT = 0.9
-// Las llamas se recargan hacia atrás de perfil, también las de la coronilla.
-const FLAME_LEAN = 0.45
-const EYE_ANGLE = 0.39
-const SHOULDER_ANGLE = 1.2
+const EYE_ANGLE = 0.43
+const SHOULDER_ANGLE = 1.1
 // Por debajo de este ancho aparente, una parte ya quedó del otro lado y no se dibuja.
 const MIN_VISIBLE = 0.45
 
@@ -96,108 +99,130 @@ const wrapYaw = (yaw: number) => Math.atan2(Math.sin(yaw), Math.cos(yaw))
 /** Qué tan de perfil está un giro, de 0 a 1; de frente y de espaldas es 0. */
 const profileAmount = (yaw: number) => Math.min(1, Math.abs(Math.sin(yaw)) / Math.sin(MAX_YAW))
 
-/** Forma y movimiento de una llama individual. */
-type Petal = {
-  angle: number
-  length: number
+/**
+ * Una lengua de fuego, medida desde el centro de la cabeza.
+ *
+ * `bend` es cuánto serpentea, con signo; `width`, su ancho máximo; `glow`, si lleva la veta
+ * clara de las lenguas más altas.
+ */
+type Flame = {
+  baseX: number
+  baseY: number
+  tipX: number
+  tipY: number
+  bend: number
   width: number
-  curl: number // cuánto enrolla hacia arriba
-  bend: number // curva en S; el signo decide hacia dónde remata la punta
   seed: number
+  glow: boolean
 }
 
-// Dibujadas del centro hacia afuera. Son asimétricas a propósito: el fuego simétrico parece un penacho.
-const PETALS: Petal[] = [
-  { angle: 0.05, length: 47, width: 8.5, curl: 0, bend: 0.2, seed: 0 },
-  { angle: -0.27, length: 39, width: 8.5, curl: 0.06, bend: -0.2, seed: 1.3 },
-  { angle: 0.36, length: 42, width: 8.5, curl: 0.08, bend: 0.24, seed: 2.4 },
-  { angle: -0.68, length: 36, width: 9, curl: 0.18, bend: -0.26, seed: 3.1 },
-  { angle: 0.76, length: 34, width: 9, curl: 0.2, bend: 0.26, seed: 4.2 },
-  { angle: -1.12, length: 31, width: 8.5, curl: 0.32, bend: -0.3, seed: 5 },
-  { angle: 1.16, length: 33, width: 8.5, curl: 0.3, bend: 0.3, seed: 5.8 },
-  { angle: -1.56, length: 27, width: 7.5, curl: 0.42, bend: -0.24, seed: 6.6 },
-  { angle: 1.52, length: 25, width: 7.5, curl: 0.44, bend: 0.24, seed: 7.4 },
-  { angle: -1.98, length: 20, width: 5.5, curl: 0.24, bend: -0.15, seed: 8.2 },
-  { angle: 2.03, length: 21, width: 5.5, curl: 0.22, bend: 0.15, seed: 9.1 },
+// Copiadas de la hoja del personaje, de atrás hacia adelante: abajo unas hojas delgadas, luego las
+// lenguas de los lados, y al final las de arriba. Cada punta remata curvándose, no en línea recta.
+const FLAMES: Flame[] = [
+  { baseX: -15, baseY: 16, tipX: -35, tipY: 12, bend: -0.1, width: 3.6, seed: 0, glow: false },
+  { baseX: 15, baseY: 16, tipX: 36, tipY: 14, bend: 0.1, width: 3.6, seed: 0.9, glow: false },
+  { baseX: -20, baseY: 8, tipX: -40, tipY: -6, bend: 0.1, width: 6, seed: 1.7, glow: false },
+  { baseX: 21, baseY: 9, tipX: 42, tipY: 1, bend: -0.13, width: 6, seed: 2.6, glow: false },
+  { baseX: -22, baseY: -6, tipX: -33, tipY: -28, bend: 0.16, width: 8, seed: 3.4, glow: false },
+  { baseX: 22, baseY: -5, tipX: 44, tipY: -19, bend: -0.2, width: 8, seed: 4.3, glow: false },
+  { baseX: 19, baseY: -13, tipX: 32, tipY: -33, bend: -0.2, width: 8.5, seed: 5.1, glow: false },
+  { baseX: -20, baseY: -17, tipX: -19, tipY: -44, bend: 0.2, width: 9, seed: 5.9, glow: false },
+  { baseX: 9, baseY: -18, tipX: 26, tipY: -43, bend: -0.2, width: 10, seed: 6.7, glow: true },
+  { baseX: -9, baseY: -19, tipX: -7, tipY: -36, bend: 0.1, width: 9, seed: 7.6, glow: true },
+  { baseX: -2, baseY: -20, tipX: 11, tipY: -62, bend: -0.17, width: 10, seed: 8.4, glow: true },
 ]
+// Cuánto se recargan hacia la nuca las de arriba al girar; las de los lados ya van hacia allá.
+const FLAME_LEAN = 0.45
+const FLAME_FULLNESS = 1.32
+const FLAME_HIGHLIGHTS = [hex('#CA83F9'), hex('#FFFFFF'), hex('#FEE7C5')]
 
 /**
- * Calcula un punto de la columna central de una llama.
+ * Calcula un punto de una lengua, ya girada junto con la cabeza. De frente se ve abierta; de
+ * perfil, todas salen hacia la nuca; de espaldas, se ve como en un espejo.
  *
- * @param petal - Llama que se dibuja.
- * @param scale - Multiplicador de su largo.
+ * @param flame - Lengua que se dibuja.
  * @param state - Estado de la animación.
  * @param hx - Columna de la cabeza.
  * @param hy - Fila de la cabeza.
- * @param s - Avance a lo largo de la llama, de 0 (base) a 1 (punta).
+ * @param s - Avance a lo largo de la lengua, de 0 (base) a 1 (punta).
  * @returns La posición del punto.
  */
-function petalPoint(petal: Petal, scale: number, state: NovaState, hx: number, hy: number, s: number) {
-  const { pose, hairPhase } = state
-  const turned = profileAmount(state.flameYaw)
-  // De perfil van más juntas y pegadas a la nuca, como una sola masa de fuego.
-  const length = petal.length * scale * pose.hairLength * (1 + state.level * 0.14) * (1 - turned * 0.26)
-  // Las llamas giran con la cabeza: las de arriba siguen hacia arriba y las de los lados se van a
-  // la nuca. Así, de perfil forman un abanico de la coronilla hacia atrás.
-  const towardNape = Math.abs(Math.sin(petal.angle))
-  const lean = FLAME_LEAN * Math.max(0, Math.cos(petal.angle))
-  const dirX = Math.sin(petal.angle) * Math.cos(state.flameYaw) - (towardNape + lean) * Math.sin(state.flameYaw)
-  const dirY = -Math.cos(petal.angle)
-  const sideX = Math.cos(petal.angle) * Math.cos(state.flameYaw)
-  const sideY = Math.sin(petal.angle)
+function flamePoint(flame: Flame, state: NovaState, hx: number, hy: number, s: number) {
+  const { pose } = state
+  const growth = pose.hairLength * (1 + state.level * 0.14)
+  const dx = (flame.tipX - flame.baseX) * growth
+  const dy = (flame.tipY - flame.baseY) * growth
+  const length = Math.hypot(dx, dy)
+
+  // Serpentea a lo largo y remata en un gancho; el viento y la emoción la mueven más en la punta.
+  const wave = flame.bend * length * (Math.sin(s * Math.PI * 1.75) * 0.7 + s * s * s * 0.55)
+  const sway = Math.sin(state.hairPhase * 4.2 + flame.seed - s * 3.4) * pose.hairWild * 2.8 * s * s
+  const flick = Math.sin(state.hairPhase * 9 + flame.seed * 2.1) * pose.hairWild * 1.1 * s * s * s
+  const droop = pose.hairDroop * length * 0.7 * s * s
+  const faceX = flame.baseX + dx * s + (-dy / length) * wave + sway
+  const faceY = flame.baseY + dy * s + (dx / length) * wave + droop + flick
+
+  // Gira alrededor del eje vertical de la cabeza.
+  const towardNape = Math.abs(faceX) + FLAME_LEAN * Math.max(0, -faceY)
   const windX = Math.max(-16, Math.min(16, -state.grabVx * 0.022)) * state.grabbed * s * s
   const windY = Math.max(-8, Math.min(8, -state.grabVy * 0.012)) * state.grabbed * s * s
-  const hook = petal.bend * length * (-0.42 * Math.sin(Math.PI * s) + 1.15 * s * s * s)
-  const sway = Math.sin(hairPhase * 4.2 + petal.seed - s * 3.4) * pose.hairWild * 3.2 * s * s
-  const flick = Math.sin(hairPhase * 9 + petal.seed * 2.1) * pose.hairWild * 1.2 * s * s * s
-  // Las llamas enrollan hacia arriba; si Nova está triste caen por su peso.
-  const curlUp = petal.curl * length * s * s * (1 - pose.hairDroop * 0.8)
-  const droop = pose.hairDroop * length * 0.62 * s * s
   return {
-    x: hx + dirX * 18 + dirX * length * s + sideX * hook + sway + windX,
-    y: hy + dirY * 15 + dirY * length * s + sideY * hook - curlUp + droop + flick + windY,
+    x: hx + faceX * Math.cos(state.flameYaw) - towardNape * Math.sin(state.flameYaw) + windX,
+    y: hy + faceY + windY,
   }
 }
 
 /**
- * Dibuja una llama como una sucesión de círculos, una capa de color tras otra.
+ * Calcula el radio de una lengua: gorda cerca de la base y con una punta larga y fina.
+ *
+ * @param flame - Lengua que se dibuja.
+ * @param state - Estado de la animación.
+ * @param s - Avance a lo largo de la lengua.
+ * @returns El radio en píxeles.
+ */
+function flameRadius(flame: Flame, state: NovaState, s: number) {
+  const ripple = 1 + 0.1 * Math.sin(s * 11 + flame.seed * 3 - state.hairPhase * 6)
+  return flame.width * FLAME_FULLNESS * Math.sin(Math.PI * s ** 0.56) ** 1.5 * ripple
+}
+
+/**
+ * Pinta una capa de color sobre una lengua, desde la base hasta donde indique `end`.
  *
  * @param buffer - Lienzo de destino.
- * @param petal - Llama que se dibuja.
+ * @param flame - Lengua que se dibuja.
  * @param state - Estado de la animación.
  * @param hx - Columna de la cabeza.
  * @param hy - Fila de la cabeza.
- * @param scale - Multiplicador de su largo.
- * @param layers - Capas, de la exterior a la interior.
+ * @param color - Color empaquetado.
+ * @param widthScale - Fracción del ancho de la lengua.
+ * @param end - Hasta qué parte de la lengua llega.
+ * @param extra - Píxeles que se agregan al radio, para el borde.
+ * @param shift - Cuánto se recorre la capa hacia arriba y a la izquierda, para dar volumen.
  */
-function drawPetal(
+function paintFlame(
   buffer: PixelBuffer,
-  petal: Petal,
+  flame: Flame,
   state: NovaState,
   hx: number,
   hy: number,
-  scale: number,
-  layers: ReadonlyArray<{ color: number; width: number; extra: number; end: number }>,
+  color: number,
+  widthScale: number,
+  end: number,
+  extra: number,
+  shift: number,
 ) {
-  // Cada capa recorre la llama desde la base hasta donde indique `end`.
-  const samples = Math.ceil(petal.length * 1.15)
-  for (const layer of layers) {
-    for (let i = 0; i <= samples; i++) {
-      const s = i / samples
-      if (s > layer.end) break
-      const point = petalPoint(petal, scale, state, hx, hy, s)
-      // Ancha abajo, punta larga y fina, con bordes ondulados que cambian como el fuego.
-      const ripple = 1 + 0.13 * Math.sin(s * 11 + petal.seed * 3 - state.hairPhase * 6)
-      const profile = Math.sin(Math.PI * s ** 0.6) ** 1.05
-      const fullness = 1 + profileAmount(state.flameYaw) * 0.35
-      const radius = petal.width * fullness * profile * ripple * layer.width + layer.extra * (1 - s)
-      if (radius > 0.15) buffer.disc(point.x, point.y, radius, layer.color)
-    }
+  const samples = Math.ceil(Math.hypot(flame.tipX - flame.baseX, flame.tipY - flame.baseY) * 1.5)
+  for (let i = 0; i <= samples; i++) {
+    const s = i / samples
+    if (s > end) break
+    const point = flamePoint(flame, state, hx, hy, s)
+    const radius = flameRadius(flame, state, s) * widthScale + extra * (1 - s * 0.5)
+    if (radius > 0.15) buffer.disc(point.x - shift, point.y - shift, radius, color)
   }
 }
 
 /**
- * Dibuja todas las llamas: primero una capa oscura de fondo y luego las detalladas.
+ * Dibuja todas las lenguas: primero la silueta y luego, capa por capa, su interior más claro.
  *
  * @param buffer - Lienzo de destino.
  * @param state - Estado de la animación.
@@ -212,29 +237,28 @@ function drawFlames(buffer: PixelBuffer, state: NovaState, hx: number, hy: numbe
   const light = pack(ramp.light)
   const core = pack(ramp.core)
 
-  // De perfil, un fondo llena el hueco entre la nuca y las llamas.
-  const turned = profileAmount(state.flameYaw)
-  if (turned > 0.25) {
-    const massX = hx - Math.sign(Math.sin(state.flameYaw)) * 14 * turned
-    buffer.rounded(massX, hy - 10, 8 + 14 * turned, 19, 2.2, deep)
-  }
-
   // Primero las que quedan del otro lado de la cabeza, y encima las más cercanas.
-  const depth = (petal: Petal) => -Math.sin(petal.angle) * Math.sin(state.flameYaw)
-  const ordered = [...PETALS].sort((a, b) => depth(a) - depth(b))
+  const depth = (flame: Flame) => -flame.baseX * Math.sin(state.flameYaw)
+  const ordered = [...FLAMES].sort((a, b) => depth(a) - depth(b))
 
-  for (const petal of ordered) {
-    drawPetal(buffer, { ...petal, seed: petal.seed + 11 }, state, hx, hy, 1.1, [
-      { color: back, width: 1.12, extra: 1, end: 1 },
-    ])
-  }
-  for (const petal of ordered) {
-    drawPetal(buffer, petal, state, hx, hy, 1, [
-      { color: deep, width: 1, extra: 0.3, end: 1 },
-      { color: mid, width: 0.7, extra: 0, end: 0.86 },
-      { color: light, width: 0.42, extra: 0, end: 0.56 },
-      { color: core, width: 0.2, extra: 0, end: 0.34 },
-    ])
+  // Un fondo llena los huecos junto a la cabeza: el fuego se ve como una sola masa.
+  const massX = hx - Math.sin(state.flameYaw) * 15
+  buffer.rounded(massX, hy - 12, 24, 20, 2.2, deep)
+
+  for (const flame of ordered) paintFlame(buffer, flame, state, hx, hy, back, 1, 1, 0.7, 0)
+  for (const flame of ordered) {
+    paintFlame(buffer, flame, state, hx, hy, deep, 1, 1, 0, 0)
+    paintFlame(buffer, flame, state, hx, hy, mid, 0.62, 0.86, 0, 0.6)
+    paintFlame(buffer, flame, state, hx, hy, light, 0.25, 0.6, 0, 0.8)
+    if (flame.glow) paintFlame(buffer, flame, state, hx, hy, core, 0.13, 0.55, 0, 0.8)
+
+    // Unos brillos sueltos sobre el fuego, que cambian de lugar con su movimiento.
+    for (let spot = 0; spot < 3; spot++) {
+      const s = 0.3 + spot * 0.2 + Math.sin(state.hairPhase * 2 + flame.seed + spot) * 0.04
+      const point = flamePoint(flame, state, hx, hy, s)
+      const side = Math.sin(flame.seed * 5 + spot * 2.3) * flameRadius(flame, state, s) * 0.45
+      buffer.set(point.x + side, point.y, pack(FLAME_HIGHLIGHTS[(spot + Math.round(flame.seed)) % 3]))
+    }
   }
 }
 
@@ -309,39 +333,39 @@ function drawNapeFlames(buffer: PixelBuffer, state: NovaState, hx: number, hy: n
 
   const { ramp, hairLength } = state.pose
   const shown = Math.min(1, (nape.facing - NAPE_STARTS_AT) / (NAPE_FULL_AT - NAPE_STARTS_AT))
+  if (shown < 0.45) return
   const centerX = hx + nape.x * 0.3
   const baseY = hy + NAPE_BASE_Y
 
-  const drawLayer = (color: number, widthScale: number, end: number, extra: number) => {
-    for (const petal of NAPE_PETALS) {
-      const length = petal.length * hairLength * (1 + state.level * 0.14) * (0.35 + shown * 0.65)
-      const samples = Math.ceil(petal.length * 1.1)
-      for (let i = 0; i <= samples; i++) {
-        const s = i / samples
-        if (s > end) break
-        const sway = Math.sin(state.hairPhase * 4.2 + petal.seed - s * 3.4) * state.pose.hairWild * 2.6 * s * s
-        const droop = state.pose.hairDroop * length * 0.55 * s * s
-        const x = centerX + (Math.sin(petal.angle) * length * s + sway) * shown
-        const y = baseY - Math.cos(petal.angle) * length * s + droop
-        const ripple = 1 + 0.13 * Math.sin(s * 11 + petal.seed * 3 - state.hairPhase * 6)
-        const radius = petal.width * Math.sin(Math.PI * s ** 0.6) ** 1.05 * ripple * widthScale * Math.max(0.3, shown) + extra
-        if (radius > 0.15) buffer.disc(x, y, radius, color)
-      }
+  const paint = (petal: (typeof NAPE_PETALS)[number], color: number, widthScale: number, end: number, extra: number) => {
+    const length = petal.length * hairLength * (1 + state.level * 0.14) * (0.35 + shown * 0.65)
+    const samples = Math.ceil(petal.length * 1.1)
+    for (let i = 0; i <= samples; i++) {
+      const s = i / samples
+      if (s > end) break
+      const sway = Math.sin(state.hairPhase * 4.2 + petal.seed - s * 3.4) * state.pose.hairWild * 2.6 * s * s
+      const droop = state.pose.hairDroop * length * 0.55 * s * s
+      const x = centerX + (Math.sin(petal.angle) * length * s + sway) * shown
+      const y = baseY - Math.cos(petal.angle) * length * s + droop
+      const ripple = 1 + 0.13 * Math.sin(s * 11 + petal.seed * 3 - state.hairPhase * 6)
+      const radius = petal.width * Math.sin(Math.PI * s ** 0.56) ** 1.4 * ripple * widthScale * Math.max(0.3, shown) + extra
+      if (radius > 0.15) buffer.disc(x, y, radius, color)
     }
   }
 
-  // Capa por capa sobre todas las llamas: forman una sola masa, más clara hacia el centro, sin
-  // líneas oscuras entre una y otra.
-  buffer.rounded(centerX, hy - 1, Math.max(1, shown * 24), 22, 2.45, pack(ramp.deep))
-  drawLayer(pack(ramp.back), 1, 1, 0.8)
-  drawLayer(pack(ramp.deep), 1, 1, 0)
-  drawLayer(pack(ramp.mid), 0.7, 0.88, 0)
-  drawLayer(pack(ramp.light), 0.38, 0.68, 0)
-  drawLayer(pack(ramp.core), 0.16, 0.46, 0)
+  // Una silueta común y luego hoja por hoja, de los lados al centro: se enciman como escamas, y
+  // solo las del centro llevan el tono más claro.
+  buffer.rounded(centerX, hy - 1, Math.max(1, shown * HELMET_RX), HELMET_RY + 1, 2.45, pack(ramp.deep))
+  for (const petal of NAPE_PETALS) paint(petal, pack(ramp.back), 1, 1, 0.6)
+  for (const petal of NAPE_PETALS) {
+    paint(petal, pack(ramp.deep), 1, 1, 0)
+    paint(petal, pack(ramp.mid), 0.68, 0.84, 0)
+    if (Math.abs(petal.angle) < 0.5) paint(petal, pack(ramp.light), 0.3, 0.6, 0)
+  }
 }
 
 /**
- * Dibuja el cuerpo fila por fila, de los hombros a la punta de la cola.
+ * Dibuja el cuerpo fila por fila: torso, vientre más oscuro y una cola en punta.
  *
  * @param buffer - Lienzo de destino.
  * @param state - Estado de la animación.
@@ -349,22 +373,22 @@ function drawNapeFlames(buffer: PixelBuffer, state: NovaState, hx: number, hy: n
  * @param top - Fila donde empieza el cuerpo.
  */
 function drawBody(buffer: PixelBuffer, state: NovaState, cx: number, top: number) {
-  const height = Math.round(47 * state.bodyStretch)
+  const height = Math.round(48 * state.bodyStretch)
   const yaw = state.bodyYaw
   const turned = profileAmount(yaw)
   const direction = Math.sign(Math.sin(yaw))
   for (let row = 0; row <= height; row++) {
-    // Ancho de la fila: hombros, vientre y luego la cola, que se afina hasta la punta.
+    // Ancho de la fila: cuello, hombros, vientre y luego la cola, que se afina hasta la punta.
     const t = row / height
-    const taper = (t - 0.4) / 0.6
+    const taper = (t - 0.52) / 0.48
     const frontWidth =
-      t < 0.14
-        ? 6.5 + (t / 0.14) * 4.8
-        : t < 0.4
-          ? 11.3 + ((t - 0.14) / 0.26) * 1.7
-          : 13 * (1 - taper) ** 0.82 * (1 - taper * taper * 0.25)
+      t < 0.1
+        ? 10 + (t / 0.1) * 3.4
+        : t < 0.52
+          ? 13.4 + ((t - 0.1) / 0.42) * 1.4
+          : 14.8 * (1 - taper) ** 0.78 * (1 - taper * taper * 0.18)
     // De perfil es más angosto: el pecho sale hacia el frente y la cola se curva hacia atrás.
-    const width = frontWidth * (1 - turned * 0.12)
+    const width = frontWidth * (1 - turned * 0.16)
     const chest = direction * turned * 2 * Math.max(0, 1 - t * 2)
     const tailCurve = -direction * turned * 8 * t * t
     // La cola se balancea más cuanto más cerca está de la punta.
@@ -373,24 +397,35 @@ function drawBody(buffer: PixelBuffer, state: NovaState, cx: number, top: number
     const right = Math.round(center + width)
     for (let x = left; x <= right; x++) {
       const across = (x - center) / Math.max(width, 1)
-      // El límite entre tonos sigue la curva del cuerpo y da sensación de volumen.
-      // De perfil, el lado de la espalda queda en sombra.
-      const depth = t + across * 0.1 + across * across * 0.1 - across * direction * turned * 0.22
+      // El borde entre tonos va dentado, como la tela de la hoja del personaje. De perfil, el lado
+      // de la espalda queda en sombra.
+      const jag = Math.sin(across * 13) * 0.016
+      const depth = t + jag + across * across * 0.08 - across * direction * turned * 0.18
       let color = WHITE
-      if (depth > 0.9) color = TAIL_DARK
-      else if (depth > 0.76) color = TAIL
-      else if (depth > 0.62) color = LAVENDER_DARK
-      else if (depth > 0.47) color = LAVENDER
-      else if (depth > 0.34) color = WHITE_SOFT
+      if (depth > 0.96) color = TAIL_DARK
+      else if (depth > 0.88) color = TAIL
+      else if (depth > 0.78) color = LAVENDER_DARK
+      else if (depth > 0.65) color = LAVENDER
+      else if (depth > 0.52) color = WHITE_SOFT
+      // La orilla de la derecha lleva una sombra de un píxel, que le da volumen.
+      if (x === right && depth < 0.67) color = WHITE_SOFT
       buffer.set(x, top + row, color)
     }
   }
+
+  // Marcas del cuello, donde la tela se junta con los hombros.
+  for (const side of [-1, 1]) {
+    const collar = onRound(BODY_RADIUS, side * 0.95 + yaw)
+    if (collar.facing < MIN_VISIBLE) continue
+    for (let row = 0; row < 3; row++) buffer.set(cx + collar.x + side * row * 0.6, top + 1 + row, LAVENDER_DARK)
+  }
+
   // La letra va pintada sobre el pecho: al girar se recorre y se angosta con él.
   LETTER_N.forEach((rowText, row) => {
     for (let column = 0; column < rowText.length; column++) {
       if (rowText[column] === ' ') continue
-      const point = onRound(BODY_RADIUS, yaw + (column - 2.5) / BODY_RADIUS)
-      if (point.facing > MIN_VISIBLE) buffer.set(cx + point.x, top + 6 + row, CHEST)
+      const point = onRound(BODY_RADIUS, yaw + (column - 3) / BODY_RADIUS)
+      if (point.facing > MIN_VISIBLE) buffer.set(cx + point.x, top + 7 + row, CHEST)
     }
   })
 }
@@ -417,13 +452,13 @@ function drawArm(
   yaw: number,
   isFar: boolean,
 ) {
-  const reach = 15 - lift
+  const reach = ARM_REACH - lift
   const steps = 18
   const turned = profileAmount(yaw)
   const shoulder = onRound(BODY_RADIUS, side * SHOULDER_ANGLE + yaw).x
   // De espaldas, cada brazo sale del lado donde quedó su hombro; de perfil, apunta hacia el frente.
   // Si cuelga va un poco hacia atrás; si lo alza, hacia el frente.
-  const forward = Math.max(-0.5, Math.min(1, (angle - 0.7) / 0.5))
+  const forward = Math.max(-0.8, Math.min(1, (angle - 1) / 0.4))
   const pointing = Math.sign(shoulder) * (1 - turned) + Math.sign(Math.sin(yaw)) * turned * forward
   const shoulderX = cx + shoulder
   const shoulderY = cy + 4
@@ -431,17 +466,26 @@ function drawArm(
     x: shoulderX + pointing * Math.sin(angle) * reach * s,
     y: shoulderY + Math.cos(angle) * reach * s,
   })
+  // De perfil va encima del cuerpo, que es del mismo color: un borde lo separa.
+  if (turned > 0.3 && !isFar) {
+    for (let i = 0; i <= steps; i++) {
+      const s = i / steps
+      const { x, y } = point(s)
+      buffer.disc(x, y, 4.6 + s * 2.2, LAVENDER_DARK)
+    }
+  }
+
   // Primero la sombra, desplazada un píxel hacia abajo; luego el brazo encima.
   for (let i = 0; i <= steps; i++) {
     const s = i / steps
     const { x, y } = point(s)
-    buffer.disc(x, y + 1, 3.1 + s * 1.5, isFar ? LAVENDER_DARK : LAVENDER)
+    buffer.disc(x + 0.5, y + 1, 3.6 + s * 2.2, isFar ? LAVENDER_DARK : LAVENDER)
   }
   for (let i = 0; i <= steps; i++) {
     const s = i / steps
     const { x, y } = point(s)
     const color = isFar ? LAVENDER : i > steps * 0.86 ? WHITE_SOFT : WHITE
-    buffer.disc(x - 0.5, y, 2.7 + s * 1.3, color)
+    buffer.disc(x - 0.5, y, 3.2 + s * 2, color)
   }
 }
 
@@ -570,10 +614,10 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
   // en sombra.
   const narrow = turned * 2.2
   const light = direction * turned * 1.6
-  buffer.rounded(hx, hy, 23.5 - narrow, 21.5, 2.45, OUTLINE)
-  buffer.rounded(hx, hy, 22.5 - narrow, 20.5, 2.45, LAVENDER)
-  buffer.rounded(hx - 0.6 + light, hy - 0.8, 21.4 - narrow, 19.3, 2.45, WHITE_SOFT)
-  buffer.rounded(hx - 1 + light * 1.4, hy - 1.3, 20 - narrow, 18, 2.45, WHITE)
+  buffer.rounded(hx, hy, HELMET_RX + 1 - narrow, HELMET_RY + 1, 2.3, OUTLINE)
+  buffer.rounded(hx, hy, HELMET_RX - narrow, HELMET_RY, 2.3, LAVENDER)
+  buffer.rounded(hx - 0.4 + light, hy - 0.8, HELMET_RX - 1 - narrow, HELMET_RY - 1.1, 2.3, WHITE_SOFT)
+  buffer.rounded(hx - 0.8 + light * 1.4, hy - 1.4, HELMET_RX - 2.2 - narrow, HELMET_RY - 2.2, 2.3, WHITE)
 
   // Bisagra del casco: el aro pequeño que se ve de perfil, atrás de la cara.
   const hinge = onRound(HEAD_RADIUS, -direction * (Math.PI / 2 + 0.3) + yaw)
@@ -583,7 +627,7 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
   }
 
   // Visor oscuro, recorrido hacia donde mira; llega hasta la orilla del casco y no más.
-  const helmetEdge = 19.8 - narrow
+  const helmetEdge = HELMET_RX - 3.4 - narrow
   const visorAngle = VISOR_ANGLE + turned * VISOR_PROFILE_ANGLE
   const visorFrom = Math.max(-helmetEdge, onRound(HEAD_RADIUS, Math.max(-Math.PI / 2, Math.min(Math.PI / 2, yaw - visorAngle))).x)
   const visorTo = Math.min(helmetEdge, onRound(HEAD_RADIUS, Math.max(-Math.PI / 2, Math.min(Math.PI / 2, yaw + visorAngle))).x)
@@ -593,10 +637,10 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
   // De espaldas no hay cara que dibujar.
   if (visorHalf < MIN_VISOR_HALF) return
 
-  buffer.rounded(visorX, hy + 1, visorHalf, 14.5, 2.8, VISOR_EDGE)
-  buffer.rounded(visorX, hy + 1, visorHalf - 1, 13.5, 2.8, VISOR)
+  buffer.rounded(visorX, hy + 1.5, visorHalf, VISOR_RY, 2.7, VISOR_EDGE)
+  buffer.rounded(visorX, hy + 1.5, visorHalf - 1, VISOR_RY - 1, 2.7, VISOR)
   const inVisor = (x: number, y: number) =>
-    Math.abs((x - visorX) / (visorHalf - 1.5)) ** 2.8 + Math.abs((y - hy - 1) / 13) ** 2.8 <= 1
+    Math.abs((x - visorX) / (visorHalf - 1.5)) ** 2.8 + Math.abs((y - hy - 1.5) / (VISOR_RY - 1.5)) ** 2.8 <= 1
 
   // Los ojos se desplazan hacia donde mira; con curiosidad, la cara se ladea.
   const eyeX = Math.round(state.lookX * 3.2 * (1 - turned * 0.5))
@@ -635,7 +679,7 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
     const mouthW = 2 + Math.round(state.level * 2.5)
     const mouthH = 1 + Math.round(state.level * 3.4)
     const mouthX = hx + onRound(HEAD_RADIUS, yaw * FACE_TURN).x + eyeX
-    const mouthY = hy + 8 + eyeY
+    const mouthY = hy + 9 + eyeY
     for (let dy = 0; dy < mouthH; dy++) {
       const width = dy === 0 || dy === mouthH - 1 ? mouthW - 1 : mouthW
       for (let dx = -width; dx <= width; dx++) buffer.set(mouthX + dx, mouthY + dy, innerColor)
@@ -648,7 +692,7 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
   if (gem.facing < MIN_VISIBLE) return
   const gemX = hx + gem.x
   // Sigue la curva del casco: de lado baja junto con la orilla, en vez de quedarse flotando.
-  const gemY = hy - 21 * (1 - Math.min(1, Math.abs(gem.x) / 22.5) ** 2.45) ** (1 / 2.45)
+  const gemY = hy - HELMET_RY * (1 - Math.min(1, Math.abs(gem.x) / (HELMET_RX + 1)) ** 2.3) ** (1 / 2.3)
   const radius = 6
   const bright = 0.35 + state.level * 0.65
   buffer.glow(gemX, gemY, 11 + state.level * 6, pose.ramp.light, 0.34 + state.level * 0.4, 3)
@@ -865,7 +909,7 @@ export function renderNova(buffer: PixelBuffer, state: NovaState) {
 
   // Posición del cuadro; la cabeza se adelanta un poco hacia donde mira.
   const cx = Math.round(CANVAS_SIZE / 2 + state.x + state.shakeX + state.actX)
-  const bodyTop = Math.round(HEAD_Y + state.y) + 17
+  const bodyTop = Math.round(HEAD_Y + state.y) + 18
   const hy = Math.round(HEAD_Y + state.y + state.headSink)
   // La cabeza se adelanta hacia donde mira y a donde va.
   const hx = cx + Math.round(state.lookX * 1.2 + state.headShake + Math.sin(state.headYaw) * 3)
