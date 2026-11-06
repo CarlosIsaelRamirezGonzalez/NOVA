@@ -35,6 +35,7 @@ const SWEAT = ['  #  ', ' ### ', '#####', '#####', ' ### ']
 const TANGLE = [' ###### ', '# ##  ##', '##  ## #', ' ## ### ', '  ####  ']
 const SCRIBBLE = [' ## # ', '#  # #', ' # ## ', '#  #  ']
 const MAGNIFIER = ['  ###  ', ' #   # ', ' #   # ', ' #   # ', '  ###  ', '     # ', '      #']
+const DIZZY_STAR = ['  #  ', ' ### ', '#####', ' ### ', ' # # ']
 const NOTE = ['  ## ', '  # #', '  #  ', '  #  ', '###  ', '###  ']
 const QUESTION = [' ### ', '#   #', '    #', '  ## ', '  #  ', '     ', '  #  ']
 
@@ -543,6 +544,29 @@ function drawLaptop(buffer: PixelBuffer, state: NovaState, cx: number, top: numb
 }
 
 /**
+ * Dibuja un ojo mareado, en espiral.
+ *
+ * @param buffer - Lienzo de destino.
+ * @param state - Estado de la animación.
+ * @param cx - Columna del centro del ojo.
+ * @param cy - Fila del centro del ojo.
+ * @param side - Lado de la cara: -1 izquierdo, 1 derecho.
+ * @param squeeze - Qué tan angosto se ve al girar la cabeza, de 0 a 1.
+ * @param color - Color empaquetado.
+ */
+function drawDizzyEye(buffer: PixelBuffer, state: NovaState, cx: number, cy: number, side: -1 | 1, squeeze: number, color: number) {
+  // Espiral que gira; cada ojo en sentido contrario, para que se vea bien mareada.
+  const turns = 2.1
+  const steps = 90
+  const radiusX = 6 * squeeze
+  for (let i = 0; i <= steps; i++) {
+    const s = i / steps
+    const angle = s * turns * Math.PI * 2 + state.time * 9 * side
+    buffer.set(cx + Math.cos(angle) * radiusX * s, cy + Math.sin(angle) * 7 * s, color)
+  }
+}
+
+/**
  * Dibuja un ojo; su forma expresa la emoción con el ceño y la sonrisa.
  *
  * @param buffer - Lienzo de destino.
@@ -671,7 +695,8 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
 
   // Ojos.
   for (const eye of eyes) {
-    drawEye(buffer, state, eye.x, eye.y, eye.side, eye.scale, outerColor, innerColor, eye.facing)
+    if (state.dizzy > 0.25) drawDizzyEye(buffer, state, eye.x, eye.y, eye.side, eye.facing, innerColor)
+    else drawEye(buffer, state, eye.x, eye.y, eye.side, eye.scale, outerColor, innerColor, eye.facing)
   }
 
   // Boca de luz: solo existe mientras habla.
@@ -810,6 +835,19 @@ function drawVisorFeelings(
 function drawSigns(buffer: PixelBuffer, state: NovaState, hx: number, hy: number) {
   const { feel, time } = state
   const threshold = 0.3
+
+  // Mareada: unas estrellitas le dan vueltas alrededor de la cabeza, como en las caricaturas.
+  if (state.dizzy > 0.25) {
+    const color = pack(hex('#FFE98A'))
+    for (let star = 0; star < 5; star++) {
+      const angle = time * 4.5 + (star / 5) * Math.PI * 2
+      const x = Math.round(hx + Math.cos(angle) * 30) - 2
+      const y = Math.round(hy - 24 + Math.sin(angle) * 8) - 2
+      // Con contorno oscuro, para que se lean encima de las llamas.
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) buffer.glyph(DIZZY_STAR, x + dx, y + dy, OUTLINE)
+      buffer.glyph(DIZZY_STAR, x, y, color)
+    }
+  }
 
   // Triste: una nube de lluvia sobre la cabeza.
   if (feel.sad > threshold) {

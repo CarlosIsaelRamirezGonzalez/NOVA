@@ -26,6 +26,11 @@ const APPEAR_SECONDS = 1.5
 const MAX_PARTICLES = 90
 const WANDER_AFTER_SECONDS = 4
 const SPIN_SECONDS = 1.15
+// Se marea si la sacuden: cada cambio brusco de dirección suma, y lo acumulado se va bajando.
+const SHAKE_MIN_SPEED = 220
+const SHAKE_REVERSALS_TO_DIZZY = 5
+const SHAKE_DECAY_PER_SECOND = 1
+const DIZZY_SECONDS = 4.5
 // El saludo: alza una mano y la mueve de lado a lado.
 const WAVE_SECONDS = 2.4
 // Lo bastante baja para que la mano salga al lado del casco, en vez de quedar detrás.
@@ -125,6 +130,10 @@ export type NovaState = {
   spin: number // cuánto lleva de la vuelta completa, en radianes
   isSpinning: boolean // si está dando una vuelta completa
   backTimer: number // segundos que le quedan enseñando la espalda
+  dizzy: number // segundos que le quedan de mareo
+  shakeAmount: number // cuánto la han sacudido últimamente
+  shakeSignX: number // última dirección horizontal al sacudirla
+  shakeSignY: number // última dirección vertical al sacudirla
   waveTimer: number // segundos que le quedan saludando con la mano
   dance: number // segundos que lleva bailando; negativo si no está bailando
   lastExcitement: number // emoción del paso anterior, para notar cuando sube de golpe
@@ -189,6 +198,10 @@ export function createNovaState(): NovaState {
     spin: 0,
     isSpinning: false,
     backTimer: 0,
+    dizzy: 0,
+    shakeAmount: 0,
+    shakeSignX: 0,
+    shakeSignY: 0,
     waveTimer: 0,
     dance: -1,
     lastExcitement: 0,
@@ -417,6 +430,37 @@ export function soothe(state: NovaState) {
 }
 
 /**
+ * Cuenta las sacudidas mientras la cargan; con suficientes cambios de dirección, se marea.
+ *
+ * @param state - Estado de la animación.
+ * @param grab - Si la están cargando y a qué velocidad.
+ * @param dt - Segundos transcurridos.
+ */
+function trackShaking(state: NovaState, grab: NovaInput['grab'], dt: number) {
+  state.shakeAmount = Math.max(0, state.shakeAmount - SHAKE_DECAY_PER_SECOND * dt)
+  state.dizzy = Math.max(0, state.dizzy - dt)
+  if (!grab.held) {
+    state.shakeSignX = 0
+    state.shakeSignY = 0
+    return
+  }
+  if (Math.abs(grab.vx) > SHAKE_MIN_SPEED) {
+    const sign = Math.sign(grab.vx)
+    if (state.shakeSignX !== 0 && sign !== state.shakeSignX) state.shakeAmount += 1
+    state.shakeSignX = sign
+  }
+  if (Math.abs(grab.vy) > SHAKE_MIN_SPEED) {
+    const sign = Math.sign(grab.vy)
+    if (state.shakeSignY !== 0 && sign !== state.shakeSignY) state.shakeAmount += 1
+    state.shakeSignY = sign
+  }
+  if (state.shakeAmount >= SHAKE_REVERSALS_TO_DIZZY) {
+    state.dizzy = DIZZY_SECONDS
+    state.shakeAmount = SHAKE_REVERSALS_TO_DIZZY - 1
+  }
+}
+
+/**
  * Hace que salude con la mano.
  *
  * @param state - Estado de la animación.
@@ -597,6 +641,9 @@ export function stepNova(state: NovaState, input: NovaInput) {
   const { dt, level, activity } = input
   const motion = input.reducedMotion ? 0.25 : 1
 
+  trackShaking(state, input.grab, dt)
+  const dizziness = Math.min(1, state.dizzy)
+
   // Baila cuando algo la emociona de golpe mientras te responde: no por el ánimo que ya traía al
   // abrir la app, ni mientras la cargan o usa la compu.
   const jumped = input.excitement >= DANCE_THRESHOLD && input.excitement - state.lastExcitement >= DANCE_JUMP
@@ -610,8 +657,15 @@ export function stepNova(state: NovaState, input: NovaInput) {
   if (state.dance >= 0) state.dance += dt
   if (state.dance >= DANCE_SECONDS || input.grab.held) state.dance = -1
   if (wasBeforeSpin && state.dance >= DANCE_SPIN_AT) startSpin(state)
+  // Mareada no está para bailes.
+  if (dizziness > 0) state.dance = -1
   const isDancing = state.dance >= 0
-  const target = targetPose({ ...input, isDancing })
+  const pose = targetPose({ ...input, isDancing })
+  // Mareada: los brazos le cuelgan y las llamas se le caen un poco.
+  const target =
+    dizziness > 0 && !input.grab.held
+      ? { ...pose, armLeft: 0.25, armRight: 0.25, hairDroop: Math.max(pose.hairDroop, 0.3), bobHeight: 0 }
+      : pose
 
   // Actualiza los relojes, la aparición y el volumen suavizado de la voz.
   state.time += dt
@@ -654,6 +708,12 @@ export function stepNova(state: NovaState, input: NovaInput) {
   state.actX += clamp(-state.grabVx * 0.012, -13, 13) * motion
   state.actY += clamp(-state.grabVy * 0.01, -9, 9) * motion
   state.bodyStretch += state.grabbed * (0.13 + Math.abs(state.grabVy) * 0.00012) * motion
+
+  // Mareada: se tambalea en círculos, cada vez menos conforme se le pasa.
+  if (dizziness > 0) {
+    state.actX += Math.sin(state.time * 3.6) * 6 * dizziness * motion
+    state.actY += Math.cos(state.time * 7.2) * 2.5 * dizziness * motion
+  }
 
   // El baile: se mece de lado a lado, brinca en cada golpe y se estira al subir.
   const beat = isDancing ? state.dance * DANCE_BEAT : 0
@@ -730,6 +790,10 @@ export function stepNova(state: NovaState, input: NovaInput) {
     // Mira hacia donde la llevan.
     gazeX = clamp(state.grabVx * 0.004, -1, 1)
     gazeY = clamp(state.grabVy * 0.004, -1, 1)
+  } else if (dizziness > 0) {
+    // Los ojos ya dan vueltas: la mirada no se fija en nada.
+    gazeX = 0
+    gazeY = 0
   } else if (state.isSpinning || state.backTimer > 0) {
     // Da la vuelta o enseña la espalda: la mirada se queda quieta para no marear.
     gazeX = 0
@@ -773,7 +837,8 @@ export function stepNova(state: NovaState, input: NovaInput) {
   const danceTurn = isDancing ? Math.sin(beat * 0.5) * 0.75 : 0
   // Si va a algún lado ya está volteando hacia allá: sumarle la mirada le escondería la cara.
   const glance = heading ? 0 : state.lookX
-  const headGoal = (travelYaw + glance * 0.32 + danceTurn) * frontFacing
+  const dizzyTurn = Math.sin(state.time * 3.6 + 0.8) * 0.3 * dizziness
+  const headGoal = (travelYaw + glance * 0.32 + danceTurn + dizzyTurn) * frontFacing
   const bodyGoal = (travelYaw * 0.9 + glance * 0.1 + danceTurn * 0.8) * frontFacing
   const headTurn = shortestTurn(state.faceYaw, headGoal)
   // Al cambiar de lado parpadea, como en los dibujos animados: oculta el giro y lo hace más vivo.

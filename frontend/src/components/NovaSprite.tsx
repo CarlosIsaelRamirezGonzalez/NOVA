@@ -239,10 +239,11 @@ export function NovaSprite({
         lookAtInput: current.lookAtInput,
         reducedMotion,
       })
-      // Mientras baila no se va paseando.
-      if ((state.dance >= 0) !== wasDancing) {
-        wasDancing = state.dance >= 0
-        dragBridge?.pauseWander?.('dance', wasDancing)
+      // Mientras baila o está mareada no se va paseando.
+      const isBusyBody = state.dance >= 0 || state.dizzy > 0
+      if (isBusyBody !== wasDancing) {
+        wasDancing = isBusyBody
+        dragBridge?.pauseWander?.('body', wasDancing)
       }
       renderNova(buffer, state)
 

@@ -2,6 +2,9 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.17.0 · 6 de noviembre de 2026 · Se marea
+- Si la tomas y la sacudes, se marea: ojos en espiral, estrellitas alrededor de la cabeza, y se tambalea unos segundos.
+
 ## v0.16.1 · 6 de noviembre de 2026 · Se le ve la mano
 - Corregido: al saludar, la mano quedaba detrás del casco y parecía que se rascaba la cabeza.
 

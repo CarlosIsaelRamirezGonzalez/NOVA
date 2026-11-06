@@ -38,6 +38,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | 22. La vuelta completa y el baile | `v0.14.2` | Comparar la hoja del personaje con Nova de perfil y de espaldas, y darle una gran noticia para que baile | Se dibujó sin revisar la hoja del personaje: las antenas y las costuras inventadas se quitaron |
 | 23. Igual a su hoja | `v0.15.0` | La hoja del personaje junto a Nova redibujada, y luego bailando | Se midió la hoja en lugar de calcular a ojo: el mismo código ahora dibuja las tres vistas |
 | 24. Te saluda | `v0.16.0` | Decir "Oye Nova" y que salga a saludar con la mano | Aparecer no bastaba: se iba volando sin decir nada. El saludo se guarda para no pagarlo cada vez |
+| 25. Se marea | `v0.17.0` | Agarrarla, sacudirla y verla tambalearse con estrellitas | Se detecta contando cambios bruscos de dirección, para que moverla normal no la maree |
 
 ## Decisiones y por qué
 | Decisión | Alternativa | Motivo |
