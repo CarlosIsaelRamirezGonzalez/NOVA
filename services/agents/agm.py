@@ -13,6 +13,7 @@ from aiohttp import ClientSession
 from services.agents.llms_service import (
     CAMERA_TOOL_NAME,
     FORGET_TOOL_NAME,
+    MOVE_TOOL_NAME,
     SEARCH_TOOL_NAME,
     WRITE_TOOL_NAME,
     LLMService,
@@ -34,6 +35,9 @@ from services.schemas import (
     Gesture,
     ImagePart,
     ImageUrl,
+    MoveArguments,
+    MoveEvent,
+    MovePlace,
     PhotoResult,
     PhotoStatus,
     StreamedReply,
@@ -73,7 +77,9 @@ TURN_REMINDER = (
     "instead of answering from memory. Don't write anything else when you call it. If he asks you "
     "to forget something, use the forget_memory tool: you really can. If he asks you to write or "
     "finish something in the app he has open and the write_in_front_app tool is available, use it: "
-    "you can't send anything, he does that himself.\n\n"
+    "you can't send anything, he does that himself. If he asks you to move, get out of the way, "
+    "stay still, walk around, or disappear from his screen, use the move_on_screen tool: you really "
+    "float over his desktop.\n\n"
     "Let him feel you in this reply: react first, with real warmth, humor, excitement, or worry, "
     "in your own words, the way someone who loves working with him would. Don't report facts in a "
     "flat tone. Your emotion tag should reflect that honestly, and curiosity should not be your "
@@ -129,6 +135,24 @@ WRITE_TOOL = ToolDefinition(
         "Don't write the reply yourself when you call it."
     ),
     parameters=WriteArguments.model_json_schema(),
+)
+MOVE_TOOL = ToolDefinition(
+    name=MOVE_TOOL_NAME,
+    description=(
+        "Move yourself on Carlos's screen: you float over his desktop like a pet. Call this whenever "
+        "he asks you to move or says you're in the way, such as \"quítate\", \"muévete\", \"hazte a "
+        "un lado\", or \"no me dejas ver\". You haven't moved unless you call it. Use away when you're blocking his view or he "
+        "just says to move; a direction or corner if he names one; stay to stop wandering; roam to "
+        "wander freely again; hide to disappear until he calls you."
+    ),
+    parameters=MoveArguments.model_json_schema(),
+)
+# Moverse no necesita pensar otra respuesta: si no dijo nada, basta con una frase.
+MOVE_PHRASES = ("Va, me quito.", "Ya voy.", "Perdón, ya me muevo.")
+MOVE_FIXED_PHRASES: tuple[tuple[MovePlace, str], ...] = (
+    ("hide", "Va, aquí ando si me ocupas."),
+    ("stay", "Va, aquí me quedo."),
+    ("roam", "¡Va, a pasear!"),
 )
 WRITE_PHRASES = ("Va, te lo escribo.", "Déjame escribirlo.", "Ahorita te lo pongo.")
 # El historial guarda solo lo que aquí se dice: nunca la captura ni el texto redactado.
@@ -209,7 +233,8 @@ AudioHandler = Callable[[bytes], Awaitable[None]]
 EmotionHandler = Callable[[EmotionBlend], Awaitable[None]]
 PhotoProvider = Callable[[], Awaitable[PhotoResult]]
 SearchHandler = Callable[
-    [SearchStartEvent | SearchDoneEvent | WriteStartEvent | WriteDoneEvent], Awaitable[None]
+    [SearchStartEvent | SearchDoneEvent | WriteStartEvent | WriteDoneEvent | MoveEvent],
+    Awaitable[None],
 ]
 
 INTERRUPTED_NOTE = (
@@ -544,7 +569,7 @@ class AgentManager:
         context = "\n\n".join(note for note in notes if note)
         self.partial_reply = ""
         request = self.conversation.build_request(self.model, context)
-        request.tools = [FORGET_TOOL]
+        request.tools = [FORGET_TOOL, MOVE_TOOL]
         # Sin cámara, Claude no debe poder intentar mirar.
         if camera_on:
             request.tools.append(CAMERA_TOOL)
@@ -562,6 +587,18 @@ class AgentManager:
             reply = await self._stream_reply(request, speech, on_token, on_emotion, True, can_write)
             first_reply: StreamedReply | None = None
             followup_note = ""
+
+            # Moverse: la ventana va de inmediato, y si no dijo nada lo confirma con una frase.
+            if reply.move_place:
+                if on_search:
+                    await on_search(MoveEvent(place=reply.move_place))
+                if not strip_tags(reply.raw_text):
+                    phrase = next(
+                        (text for place, text in MOVE_FIXED_PHRASES if place == reply.move_place),
+                        random.choice(MOVE_PHRASES),
+                    )
+                    await on_token(phrase)
+                    speech.enqueue(phrase)
 
             # Olvidar: borra de verdad y deja que Nova lo confirme con lo que realmente se borró.
             if reply.forget_requested and self.memory:
@@ -695,6 +732,8 @@ class AgentManager:
                 if filtered.forget_requested and tools_allowed:
                     reply.forget_requested = True
                     break
+                if tools_allowed:
+                    reply.move_place = reply.move_place or filtered.move_place
                 if filtered.search_query and tools_allowed:
                     reply.search_query = filtered.search_query
                     break

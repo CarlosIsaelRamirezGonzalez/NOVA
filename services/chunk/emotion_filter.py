@@ -13,6 +13,11 @@ DEFAULT_INTENSITY = 1.0
 
 # Admite `[[search: clima en Monterrey]]`; va antes que las emociones por el `:` de su formato.
 SEARCH_PATTERN = re.compile(r"\[\[\s*search\s*:\s*([^\[\]]{1,200}?)\s*\]\]", re.IGNORECASE)
+MOVE_PATTERN = re.compile(
+    r"\[\[\s*move\s*:\s*(away|left|right|up|down|top_left|top_right|bottom_left|bottom_right|center"
+    r"|stay|roam|hide)\s*\]\]",
+    re.IGNORECASE,
+)
 WRITE_PATTERN = re.compile(r"\[\[\s*write\s*:\s*([^\[\]]{1,400}?)\s*\]\]", re.IGNORECASE)
 # Admite `[[sad]]` y mezclas como `[[sad:0.6, worried:0.4]]`.
 _COMPONENT = r"[a-zA-Z]+(?:\s*:\s*\d*\.?\d+)?"
@@ -103,6 +108,12 @@ class EmotionTagFilter:
             if search:
                 result.search_query = result.search_query or search.group(1)
                 self.pending = self.pending[search.end() :]
+                continue
+
+            move = MOVE_PATTERN.match(self.pending)
+            if move:
+                result.move_place = result.move_place or move.group(1).lower()
+                self.pending = self.pending[move.end() :]
                 continue
 
             write = WRITE_PATTERN.match(self.pending)

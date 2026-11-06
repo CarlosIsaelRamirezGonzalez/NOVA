@@ -12,6 +12,17 @@ const SERVER_START_TIMEOUT_MS = 90_000
 const WIDGET_SIZE = { width: 300, height: 400 }
 // Cuánto de la ventana puede salirse del borde: Nova nunca se pierde de vista.
 const OFFSCREEN_MARGIN = 80
+const TRAVEL_TICK_MS = 16
+const WANDER_SPEED = 170
+const COMMAND_SPEED = 1100
+const WANDER_MIN_DISTANCE = 220
+const WANDER_REST_MS = { min: 2500, max: 6000 }
+// Si le pides que se quite, no regresa paseando a tapar lo que estás viendo.
+const COMMAND_REST_MS = 45_000
+// Frena al llegar, en vez de detenerse de golpe.
+const ARRIVAL_EASE_PX = 140
+// Solo se detiene si estás usando el mouse encima de ella: un cursor olvidado no la atrapa.
+const CURSOR_ACTIVE_MS = 2000
 const AUTOSTART_LABEL = 'com.nova.desktop'
 const AUTOSTART_FILE = path.join(os.homedir(), 'Library', 'LaunchAgents', `${AUTOSTART_LABEL}.plist`)
 
@@ -19,6 +30,13 @@ let server = null
 let widget = null
 let tray = null
 let dragStart = null
+// A dónde va ahora, si anda de paseo o si se lo pediste, y si tiene permiso de pasear.
+let travel = null
+let travelTimer = null
+let wanderEnabled = true
+let nextWanderAt = 0
+let lastCursor = { x: 0, y: 0 }
+let lastCursorMoveAt = 0
 
 /**
  * Devuelve el archivo donde se recuerda en qué parte de la pantalla quedó Nova.
@@ -63,6 +81,208 @@ function clampToDisplay(x, y, screenX, screenY) {
     x: limit(x, bounds.x - WIDGET_SIZE.width + OFFSCREEN_MARGIN, bounds.x + bounds.width - OFFSCREEN_MARGIN),
     y: limit(y, bounds.y - WIDGET_SIZE.height + OFFSCREEN_MARGIN, bounds.y + bounds.height - OFFSCREEN_MARGIN),
   }
+}
+
+/** Guarda dónde quedó Nova, para que aparezca ahí la próxima vez. */
+function savePosition() {
+  if (!widget) return
+  const [x, y] = widget.getPosition()
+  fs.writeFileSync(positionFile(), JSON.stringify({ x, y }))
+}
+
+/**
+ * Devuelve el área útil de la pantalla donde está Nova, y sus límites para que se vea completa.
+ *
+ * @returns {{left: number, top: number, right: number, bottom: number}} Los límites de la ventana.
+ */
+function travelArea() {
+  const [x, y] = widget.getPosition()
+  const center = { x: x + WIDGET_SIZE.width / 2, y: y + WIDGET_SIZE.height / 2 }
+  const { workArea } = screen.getDisplayNearestPoint(center)
+  return {
+    left: workArea.x,
+    top: workArea.y,
+    right: workArea.x + workArea.width - WIDGET_SIZE.width,
+    bottom: workArea.y + workArea.height - WIDGET_SIZE.height,
+  }
+}
+
+/**
+ * Comprueba si estás usando el mouse encima de la ventana: ahí no pasea, para que puedas tocarla.
+ *
+ * @returns {boolean} Si el cursor está encima y se movió hace poco.
+ */
+function cursorIsBusyOverWidget() {
+  const cursor = screen.getCursorScreenPoint()
+  if (cursor.x !== lastCursor.x || cursor.y !== lastCursor.y) {
+    lastCursor = cursor
+    lastCursorMoveAt = Date.now()
+  }
+  if (Date.now() - lastCursorMoveAt > CURSOR_ACTIVE_MS) return false
+  const [x, y] = widget.getPosition()
+  return cursor.x >= x && cursor.x < x + WIDGET_SIZE.width && cursor.y >= y && cursor.y < y + WIDGET_SIZE.height
+}
+
+/**
+ * Elige un punto al azar de la pantalla, no demasiado cerca de donde está.
+ *
+ * @returns {{x: number, y: number, speed: number, isWander: boolean}} El siguiente viaje.
+ */
+function pickWanderTarget() {
+  const area = travelArea()
+  const [x, y] = widget.getPosition()
+  const pick = () => ({
+    x: area.left + Math.random() * (area.right - area.left),
+    y: area.top + Math.random() * (area.bottom - area.top),
+  })
+  let target = pick()
+  for (let attempt = 0; attempt < 8 && Math.hypot(target.x - x, target.y - y) < WANDER_MIN_DISTANCE; attempt += 1) {
+    target = pick()
+  }
+  return { ...target, speed: WANDER_SPEED, isWander: true }
+}
+
+/** Avisa a la interfaz a qué velocidad va la ventana, para animar el cuerpo. */
+function sendTravelSpeed(vx, vy) {
+  widget?.webContents.send('window-travel', vx, vy)
+}
+
+/** Avanza un paso del viaje actual, o decide el siguiente paseo. */
+function stepTravel() {
+  if (!widget || !widget.isVisible() || dragStart) return
+
+  // Un paseo espera si la estás tocando; lo que le pediste, no.
+  const isBlocked = cursorIsBusyOverWidget() && (!travel || travel.isWander)
+  if (isBlocked) {
+    sendTravelSpeed(0, 0)
+    return
+  }
+  if (!travel) {
+    if (wanderEnabled && Date.now() >= nextWanderAt) travel = pickWanderTarget()
+    return
+  }
+
+  const [x, y] = widget.getPosition()
+  const distance = Math.hypot(travel.x - x, travel.y - y)
+  if (distance < 2) {
+    widget.setPosition(Math.round(travel.x), Math.round(travel.y))
+    sendTravelSpeed(0, 0)
+    savePosition()
+    if (travel.isWander) {
+      nextWanderAt = Date.now() + WANDER_REST_MS.min + Math.random() * (WANDER_REST_MS.max - WANDER_REST_MS.min)
+    }
+    travel = null
+    return
+  }
+  const speed = Math.max(40, travel.speed * Math.min(1, distance / ARRIVAL_EASE_PX))
+  const step = Math.max(2, Math.min(distance, (speed * TRAVEL_TICK_MS) / 1000))
+  const vx = ((travel.x - x) / distance) * speed
+  const vy = ((travel.y - y) / distance) * speed
+  widget.setPosition(
+    Math.round(x + ((travel.x - x) / distance) * step),
+    Math.round(y + ((travel.y - y) / distance) * step),
+  )
+  sendTravelSpeed(vx, vy)
+}
+
+/**
+ * Enciende o apaga el movimiento: oculta no tiene por qué seguir calculando.
+ *
+ * @param {boolean} isVisible - Si la ventana se ve.
+ */
+function setTravelLoop(isVisible) {
+  if (travelTimer) clearInterval(travelTimer)
+  travelTimer = isVisible ? setInterval(stepTravel, TRAVEL_TICK_MS) : null
+  if (!isVisible) travel = null
+}
+
+/** Si el cursor está en otra pantalla, aparece en esa, que es donde la estás ocupando. */
+function moveToCursorDisplay() {
+  const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const [x, y] = widget.getPosition()
+  const center = { x: x + WIDGET_SIZE.width / 2, y: y + WIDGET_SIZE.height / 2 }
+  if (screen.getDisplayNearestPoint(center).id === cursorDisplay.id) return
+  const { workArea } = cursorDisplay
+  widget.setPosition(
+    Math.round(workArea.x + Math.random() * (workArea.width - WIDGET_SIZE.width)),
+    Math.round(workArea.y + Math.random() * (workArea.height - WIDGET_SIZE.height)),
+  )
+}
+
+/**
+ * Calcula a dónde ir según lo que le pediste.
+ *
+ * @param {string} place - Lugar pedido, como `away`, `left` o `top_right`.
+ * @returns {{x: number, y: number} | null} El destino, o `null` si no es un lugar.
+ */
+function commandTarget(place) {
+  const area = travelArea()
+  const [x, y] = widget.getPosition()
+  const stepX = (area.right - area.left) * 0.4
+  const stepY = (area.bottom - area.top) * 0.4
+  const limitX = (value) => Math.min(area.right, Math.max(area.left, value))
+  const limitY = (value) => Math.min(area.bottom, Math.max(area.top, value))
+  const corners = [
+    { x: area.left, y: area.top },
+    { x: area.right, y: area.top },
+    { x: area.left, y: area.bottom },
+    { x: area.right, y: area.bottom },
+  ]
+  switch (place) {
+    case 'away':
+      // Se va a la esquina más lejana: lo que te tapaba está donde ella estaba.
+      return corners.reduce((best, corner) =>
+        Math.hypot(corner.x - x, corner.y - y) > Math.hypot(best.x - x, best.y - y) ? corner : best,
+      )
+    case 'left':
+      return { x: limitX(x - stepX), y }
+    case 'right':
+      return { x: limitX(x + stepX), y }
+    case 'up':
+      return { x, y: limitY(y - stepY) }
+    case 'down':
+      return { x, y: limitY(y + stepY) }
+    case 'top_left':
+      return corners[0]
+    case 'top_right':
+      return corners[1]
+    case 'bottom_left':
+      return corners[2]
+    case 'bottom_right':
+      return corners[3]
+    case 'center':
+      return { x: (area.left + area.right) / 2, y: (area.top + area.bottom) / 2 }
+    default:
+      return null
+  }
+}
+
+/**
+ * Obedece lo que le pediste con la voz.
+ *
+ * @param {string} place - Lugar pedido, `stay`, `roam` o `hide`.
+ */
+function handleMoveCommand(place) {
+  if (!widget) return
+  if (place === 'hide') {
+    widget.webContents.send('presence-command', 'dismiss')
+    return
+  }
+  if (place === 'stay') {
+    wanderEnabled = false
+    travel = null
+    sendTravelSpeed(0, 0)
+    return
+  }
+  if (place === 'roam') {
+    wanderEnabled = true
+    nextWanderAt = 0
+    return
+  }
+  const target = commandTarget(place)
+  if (!target) return
+  travel = { ...target, speed: COMMAND_SPEED, isWander: false }
+  nextWanderAt = Date.now() + COMMAND_REST_MS
 }
 
 // Nova empieza a hablar sola cuando la llamas: no hay clic que autorice el audio.
@@ -135,7 +355,10 @@ function createWidget() {
       backgroundThrottling: false,
     },
   })
-  widget.once('ready-to-show', () => widget?.showInactive())
+  widget.once('ready-to-show', () => {
+    widget?.showInactive()
+    setTravelLoop(true)
+  })
   widget.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   widget.setAlwaysOnTop(true, 'floating')
 
@@ -148,6 +371,7 @@ function createWidget() {
     return { action: 'deny' }
   })
   widget.on('closed', () => {
+    setTravelLoop(false)
     widget = null
   })
   void widget.loadURL(`${SERVER_URL}/?widget=1`)
@@ -244,6 +468,7 @@ if (!app.requestSingleInstanceLock()) {
     if (!widget) return
     const [x, y] = widget.getPosition()
     dragStart = { x, y, screenX, screenY }
+    travel = null
   })
   ipcMain.on('drag-move', (_event, screenX, screenY) => {
     if (!widget || !dragStart) return
@@ -257,17 +482,22 @@ if (!app.requestSingleInstanceLock()) {
   })
   ipcMain.on('drag-end', () => {
     dragStart = null
-    if (!widget) return
-    const [x, y] = widget.getPosition()
-    fs.writeFileSync(positionFile(), JSON.stringify({ x, y }))
+    // Si la dejaste en un lugar, no se va de inmediato.
+    nextWanderAt = Date.now() + COMMAND_REST_MS
+    savePosition()
   })
 
   // La interfaz avisa cuándo debe verse Nova; responde al terminar para animar su entrada.
   ipcMain.handle('set-present', (_event, present) => {
     if (!widget) return
+    if (present && !widget.isVisible()) moveToCursorDisplay()
     if (present) widget.showInactive()
     else widget.hide()
+    if (!present) savePosition()
+    setTravelLoop(present)
   })
+
+  ipcMain.on('move-to', (_event, place) => handleMoveCommand(place))
 
   // El permiso del micrófono se pide hasta que enciendes el micrófono.
   ipcMain.handle('request-microphone', () => systemPreferences.askForMediaAccess('microphone'))

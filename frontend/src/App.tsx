@@ -166,12 +166,25 @@ export default function App() {
       : null
   const notice = error ?? listenError ?? dictation.micError ?? camera.cameraError
 
-  // Flotando, solo se ve si la llamaste o si no puede oírte: sin micrófono no tendrías cómo llamarla.
+  // Flotando, solo se ve si la llamaste: oculta sigue oyendo, y un aviso solo se asoma unos segundos.
   const presence = useWidgetPresence(
     IS_WIDGET,
-    activity !== 'idle',
-    !connected || ['off', 'loading', 'error'].includes(listenState) || Boolean(notice),
+    busy || webSearch !== 'none' || listenState === 'hearing' || listenState === 'transcribing',
+    Boolean(notice) || listenState === 'conversing',
   )
+
+  // Flotando, siempre está atenta a su nombre; también pide el permiso del micrófono si hace falta.
+  const micStarted = useRef(false)
+  useEffect(() => {
+    if (!IS_WIDGET || micStarted.current) return
+    micStarted.current = true
+    if (!listenEnabled) {
+      void toggleListening()
+      return
+    }
+    const bridge = (window as unknown as { novaDesktop?: { requestMicrophone: () => Promise<boolean> } }).novaDesktop
+    void bridge?.requestMicrophone()
+  }, [listenEnabled, toggleListening])
 
   // En la ventana flotante, el fondo es transparente para que Nova flote sobre el escritorio.
   useEffect(() => {
@@ -228,8 +241,8 @@ export default function App() {
   if (IS_WIDGET) {
     return (
       <main
-        onPointerEnter={() => presence.setHovered(true)}
-        onPointerLeave={() => presence.setHovered(false)}
+        onPointerMove={presence.noteHover}
+        onPointerLeave={presence.endHover}
         className={`nova-presence group relative flex h-dvh flex-col items-center overflow-hidden px-2 pb-2 ${
           presence.entered ? '' : 'nova-away'
         }`}

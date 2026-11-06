@@ -1,8 +1,8 @@
 /** Hook que decide cuándo se ve la ventana flotante de Nova. */
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-type PresenceCommand = 'toggle' | 'summon'
+type PresenceCommand = 'toggle' | 'summon' | 'dismiss'
 
 type PresenceBridge = {
   setPresent: (present: boolean) => Promise<void>
@@ -15,26 +15,41 @@ const bridge = (window as unknown as { novaDesktop?: PresenceBridge }).novaDeskt
 const LINGER_MS = 2500
 /** Lo que dura la animación de salida; debe coincidir con `.nova-presence` en `index.css`. */
 const EXIT_MS = 380
-/** Cuánto se queda si la muestras desde la barra de menú. */
-const SUMMON_MS = 15_000
+/** Cuánto se queda sin que esté haciendo nada: tras un aviso, tras responderte o si la muestras. */
+const SUMMON_MS = 10_000
+/** El cursor quieto encima de la ventana no la deja ahí para siempre. */
+const HOVER_MS = 6000
 
 /**
- * Muestra a Nova mientras tiene algo que hacer y la oculta cuando vuelve a esperar.
+ * Muestra a Nova solo mientras la ocupas. Oculta sigue oyendo: el micrófono no depende de esto.
  *
  * @param isWidget - Si esta pantalla es la ventana flotante; en las demás no hace nada.
- * @param isActive - Si te está escuchando o respondiendo; esto siempre la hace aparecer.
- * @param needsAttention - Si tiene un aviso o no puede oírte; se puede ocultar a mano.
+ * @param isActive - Si te oyó o te está respondiendo; esto siempre la hace aparecer.
+ * @param isBrief - Si hay un aviso o acaba de responderte; se queda solo unos segundos.
  * @returns Si ya debe verse en pantalla y cómo avisar que el cursor está encima.
  */
-export function useWidgetPresence(isWidget: boolean, isActive: boolean, needsAttention: boolean) {
+export function useWidgetPresence(isWidget: boolean, isActive: boolean, isBrief: boolean) {
   const [hovered, setHovered] = useState(false)
   const [summoned, setSummoned] = useState(false)
   const [dismissed, setDismissed] = useState(false)
   const [entered, setEntered] = useState(true)
 
   const enabled = isWidget && Boolean(bridge)
-  const wanted = isActive || (!dismissed && (needsAttention || hovered || summoned))
+  const wanted = isActive || (!dismissed && (hovered || summoned))
   const latestWanted = useRef(wanted)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  // Cada movimiento del cursor encima de ella le da unos segundos más.
+  const noteHover = useCallback(() => {
+    setHovered(true)
+    clearTimeout(hoverTimer.current)
+    hoverTimer.current = setTimeout(() => setHovered(false), HOVER_MS)
+  }, [])
+  const endHover = useCallback(() => {
+    clearTimeout(hoverTimer.current)
+    setHovered(false)
+  }, [])
+  useEffect(() => () => clearTimeout(hoverTimer.current), [])
 
   useEffect(() => {
     latestWanted.current = wanted
@@ -45,11 +60,15 @@ export function useWidgetPresence(isWidget: boolean, isActive: boolean, needsAtt
     if (isActive) setDismissed(false)
   }, [isActive])
 
-  // Atiende lo que se pide desde la barra de menú.
+  useEffect(() => {
+    if (isBrief) setSummoned(true)
+  }, [isBrief])
+
+  // Atiende lo que se pide desde la barra de menú o con la voz.
   useEffect(() => {
     if (!enabled || !bridge) return
     return bridge.onPresenceCommand((command) => {
-      if (command === 'toggle' && latestWanted.current) {
+      if (command === 'dismiss' || (command === 'toggle' && latestWanted.current)) {
         setHovered(false)
         setSummoned(false)
         setDismissed(true)
@@ -94,5 +113,5 @@ export function useWidgetPresence(isWidget: boolean, isActive: boolean, needsAtt
     }
   }, [enabled, wanted, dismissed])
 
-  return { entered, setHovered }
+  return { entered, noteHover, endHover }
 }

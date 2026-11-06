@@ -11,6 +11,7 @@ from services.schemas import (
     ChatRequest,
     ClaudeUsage,
     ImagePart,
+    MoveArguments,
     SearchArguments,
     TextPart,
     WriteArguments,
@@ -23,6 +24,7 @@ SEARCH_TOOL_NAME = "web_search"
 FORGET_TOOL_NAME = "forget_memory"
 CAMERA_TOOL_NAME = "look_through_camera"
 WRITE_TOOL_NAME = "write_in_front_app"
+MOVE_TOOL_NAME = "move_on_screen"
 # En una conversación en vivo importa empezar a hablar pronto: razonar costaba varios segundos.
 NO_THINKING = {"type": "disabled"}
 EFFORT = "low"
@@ -212,6 +214,8 @@ class LLMService:
             yield "[[photo]]"
         elif tool_name == SEARCH_TOOL_NAME:
             yield self._search_tag(tool_arguments)
+        elif tool_name == MOVE_TOOL_NAME:
+            yield self._move_tag(tool_arguments)
         elif tool_name == WRITE_TOOL_NAME:
             yield self._write_tag(tool_arguments)
 
@@ -253,6 +257,21 @@ class LLMService:
         # Los corchetes romperían la etiqueta, y Nova acabaría leyéndola en voz alta.
         clean_query = query.replace("[", " ").replace("]", " ").strip()[:MAX_QUERY_CHARS]
         return f"[[search: {clean_query}]]" if clean_query else ""
+
+    @staticmethod
+    def _move_tag(arguments: str) -> str:
+        """Convierte los argumentos de la herramienta en una etiqueta de movimiento.
+
+        Args:
+            arguments: Argumentos en JSON.
+
+        Returns:
+            La etiqueta, o una cadena vacía si los argumentos no son válidos.
+        """
+        try:
+            return f"[[move: {MoveArguments.model_validate_json(arguments).place}]]"
+        except ValidationError:
+            return ""
 
     @staticmethod
     def _write_tag(arguments: str) -> str:

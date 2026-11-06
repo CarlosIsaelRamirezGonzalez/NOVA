@@ -37,6 +37,21 @@ MAX_PHOTO_DATA_URL_CHARS = 2_000_000
 UsagePurpose = Literal["conversation", "memory", "search", "voice"]
 
 
+MovePlace = Literal[
+    "away",
+    "left",
+    "right",
+    "up",
+    "down",
+    "top_left",
+    "top_right",
+    "bottom_left",
+    "bottom_right",
+    "center",
+    "stay",
+    "roam",
+    "hide",
+]
 TypingStatus = Literal["written", "stopped", "app_changed", "secure_field"]
 WriteStatus = (
     TypingStatus
@@ -160,6 +175,16 @@ class SearchArguments(BaseModel):
     query: str
 
 
+class MoveArguments(BaseModel):
+    """Argumentos con los que el modelo pide moverse por la pantalla.
+
+    Attributes:
+        place: A dónde ir, o `stay`, `roam` y `hide` para quedarse, pasear u ocultarse.
+    """
+
+    place: MovePlace
+
+
 class WriteArguments(BaseModel):
     """Argumentos con los que el modelo pide escribir en la app al frente.
 
@@ -270,6 +295,7 @@ class FilteredText(BaseModel):
         forget_requested: Si Nova decidió olvidar algo porque Carlos se lo pidió.
         search_query: Lo que Nova quiere buscar en internet, si pidió hacerlo.
         write_instructions: Lo que Nova debe escribir en la app al frente, si pidió hacerlo.
+        move_place: A dónde quiere moverse Nova en la pantalla, si pidió hacerlo.
     """
 
     text: str = ""
@@ -278,6 +304,7 @@ class FilteredText(BaseModel):
     forget_requested: bool = False
     search_query: str | None = None
     write_instructions: str | None = None
+    move_place: MovePlace | None = None
 
 
 class ForgetDecision(BaseModel):
@@ -415,6 +442,7 @@ class StreamedReply(BaseModel):
         forget_requested: Si Nova decidió olvidar algo.
         search_query: Lo que Nova quiere buscar en internet, si pidió hacerlo.
         write_instructions: Lo que Nova debe escribir en la app al frente, si pidió hacerlo.
+        move_place: A dónde quiere moverse Nova en la pantalla, si pidió hacerlo.
     """
 
     raw_text: str = ""
@@ -422,6 +450,7 @@ class StreamedReply(BaseModel):
     forget_requested: bool = False
     search_query: str | None = None
     write_instructions: str | None = None
+    move_place: MovePlace | None = None
 
 
 class PhotoResult(BaseModel):
@@ -770,6 +799,18 @@ class SearchStartEvent(BaseModel):
     query: str
 
 
+class MoveEvent(BaseModel):
+    """Pedido para que la ventana flotante se mueva.
+
+    Attributes:
+        type: Discriminador del evento.
+        place: A dónde ir.
+    """
+
+    type: Literal["move"] = "move"
+    place: MovePlace
+
+
 class WriteStartEvent(BaseModel):
     """Aviso de que Nova empezó a escribir en la app al frente.
 
@@ -940,6 +981,7 @@ ServerEvent = (
     | HeardEvent
     | SearchStartEvent
     | SearchDoneEvent
+    | MoveEvent
     | WriteStartEvent
     | WriteDoneEvent
     | GestureReactionEvent

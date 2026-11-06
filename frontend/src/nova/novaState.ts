@@ -494,9 +494,11 @@ export function stepNova(state: NovaState, input: NovaInput) {
 
   // Al cargarla, el cuerpo se queda atrás del movimiento, y al soltarla cae con un rebote.
   const held = input.grab.held
-  state.grabbed = approach(state.grabbed, held ? 1 : 0, held ? 14 : 7, dt)
-  state.grabVx = approach(state.grabVx, held ? input.grab.vx : 0, 10, dt)
-  state.grabVy = approach(state.grabVy, held ? input.grab.vy : 0, 10, dt)
+  // Al ir de un lado a otro por su cuenta vuela: casi como cargada, con el portal apagado.
+  const isFlying = !held && Math.hypot(input.grab.vx, input.grab.vy) > 20
+  state.grabbed = approach(state.grabbed, held ? 1 : isFlying ? 0.7 : 0, held ? 14 : 7, dt)
+  state.grabVx = approach(state.grabVx, input.grab.vx, 10, dt)
+  state.grabVy = approach(state.grabVy, input.grab.vy, 10, dt)
   if (state.wasHeld && !held && !input.reducedMotion) poke(state)
   state.wasHeld = held
   state.actX += clamp(-state.grabVx * 0.012, -13, 13) * motion

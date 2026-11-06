@@ -50,6 +50,7 @@ from services.schemas import (
     PhotoResult,
     RecallEvent,
     SearchDoneEvent,
+    MoveEvent,
     SearchStartEvent,
     WriteDoneEvent,
     WriteStartEvent,
@@ -557,13 +558,17 @@ class NovaServer:
             return await self._request_photo(socket)
 
         async def send_search(
-            event: SearchStartEvent | SearchDoneEvent | WriteStartEvent | WriteDoneEvent,
+            event: SearchStartEvent | SearchDoneEvent | WriteStartEvent | WriteDoneEvent | MoveEvent,
         ) -> None:
-            """Avisa al navegador de una búsqueda o de que está escribiendo en otra app.
+            """Avisa al navegador de una búsqueda, de que escribe en otra app o de que se mueva.
 
             Args:
-                event: Inicio o final de la actividad.
+                event: Inicio o final de la actividad, o el lugar a donde ir.
             """
+            # Quien se mueve es la ventana flotante, aunque se lo pidas desde la ventana completa.
+            if isinstance(event, MoveEvent):
+                await self._broadcast(event)
+                return
             await self._send(socket, event)
 
         async with self.turn_lock:

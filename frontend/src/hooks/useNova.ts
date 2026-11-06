@@ -100,6 +100,7 @@ type ServerEvent =
   | { type: 'photo_request'; request_id: string; remaining: number }
   | { type: 'search_start'; query: string }
   | { type: 'search_done'; sources: string[] }
+  | { type: 'move'; place: string }
   | { type: 'write_start' }
   | { type: 'write_done' }
   | { type: 'interrupted' }
@@ -296,6 +297,13 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
         // El cerebro no depende del turno en curso, ni siquiera si se acaba de interrumpir.
         if (event.type === 'brain') {
           setBrain({ memories: event.memories, links: event.links, mood: event.mood })
+          return
+        }
+        if (event.type === 'move') {
+          // Solo la ventana flotante se mueve, aunque el pedido llegue a todas las pantallas.
+          if (new URLSearchParams(location.search).has('widget')) {
+            ;(window as unknown as { novaDesktop?: { moveTo: (place: string) => void } }).novaDesktop?.moveTo(event.place)
+          }
           return
         }
         if (event.type === 'listen_state') {

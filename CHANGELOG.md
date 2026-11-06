@@ -2,6 +2,14 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.12.0 · 6 de noviembre de 2026 · Nova de escritorio, como mascota
+- El micrófono flotante se enciende solo y Nova se oculta aunque esté escuchando: solo aparece si la llamas.
+- Tras responderte se queda unos 12 segundos; si le hablas en ese rato, responde y vuelve a aparecer.
+- Mientras se ve, pasea por la pantalla volando; si mueves el mouse encima de ella, espera.
+- Se le puede decir que se quite, a dónde ir, que se quede quieta, que pasee o que desaparezca.
+- Si le pides que se quite, se va a la esquina más lejana y no regresa paseando durante 45 segundos.
+- Aparece en la pantalla donde tengas el cursor.
+
 ## v0.11.0 · 5 de noviembre de 2026 · Escribe en tu app
 - Nova puede ver la ventana que tienes al frente y escribir ahí lo que le pidas, como terminar un mensaje de WhatsApp.
 - Nunca envía: se quita todo salto de línea antes de teclear, y el Enter siempre lo das tú.

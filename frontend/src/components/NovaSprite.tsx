@@ -23,6 +23,7 @@ const DRAG_THRESHOLD_PX = 4
 
 /** Funciones de la app de escritorio para mover la ventana; en el navegador no existen. */
 type DragBridge = {
+  onTravel?: (handler: (vx: number, vy: number) => void) => () => void
   startDrag: (screenX: number, screenY: number) => void
   moveDrag: (screenX: number, screenY: number) => void
   endDrag: () => void
@@ -156,6 +157,12 @@ export function NovaSprite({
       grab.vy = 0
       dragBridge?.endDrag()
     }
+    // Cuando se mueve sola, la velocidad de la ventana anima el cuerpo igual que al cargarla.
+    const stopTravel = dragBridge?.onTravel?.((vx, vy) => {
+      if (grab.held) return
+      grab.vx = vx
+      grab.vy = vy
+    })
     addEventListener('pointermove', onPointerMove)
     element.addEventListener('pointerdown', onPointerDown)
     element.addEventListener('pointermove', onDragMove)
@@ -227,6 +234,7 @@ export function NovaSprite({
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
+      stopTravel?.()
       removeEventListener('pointermove', onPointerMove)
       element.removeEventListener('pointerdown', onPointerDown)
       element.removeEventListener('pointermove', onDragMove)
