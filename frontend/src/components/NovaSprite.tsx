@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { describeBlend, type Activity, type EmotionBlend } from '../nova/emotions'
-import { CANVAS_SIZE, createNovaState, flinch, poke, soothe, stepNova, showBack, startDance, startSpin } from '../nova/novaState'
+import { CANVAS_SIZE, createNovaState, flinch, poke, soothe, stepNova, showBack, startDance, startSpin, startWave } from '../nova/novaState'
 import { PixelBuffer } from '../nova/pixelBuffer'
 import { renderNova } from '../nova/renderNova'
 
@@ -38,6 +38,7 @@ type Props = {
   activity: Activity
   lookAtInput: boolean
   calmCount: number
+  greetCount: number
   photoCount: number
   interruptCount: number
   getFace: () => { x: number; y: number } | null
@@ -56,6 +57,7 @@ export function NovaSprite({
   activity,
   lookAtInput,
   calmCount,
+  greetCount,
   photoCount,
   interruptCount,
   getFace,
@@ -63,12 +65,12 @@ export function NovaSprite({
 }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
-  const latest = useRef({ blend, activity, lookAtInput, calmCount, photoCount, interruptCount, getFace })
+  const latest = useRef({ blend, activity, lookAtInput, calmCount, greetCount, photoCount, interruptCount, getFace })
 
   // Guarda las propiedades actuales para que el bucle las lea sin tener que reiniciarse.
 
   useEffect(() => {
-    latest.current = { blend, activity, lookAtInput, calmCount, photoCount, interruptCount, getFace }
+    latest.current = { blend, activity, lookAtInput, calmCount, greetCount, photoCount, interruptCount, getFace }
   })
 
   useEffect(() => {
@@ -85,6 +87,7 @@ export function NovaSprite({
     let pokedUntil = 0
     let wasDancing = false
     let handledCalmCount = latest.current.calmCount
+    let handledGreetCount = latest.current.greetCount
     let handledPhotoCount = latest.current.photoCount
     let handledInterruptCount = latest.current.interruptCount
     let frame = 0
@@ -191,6 +194,10 @@ export function NovaSprite({
       const current = latest.current
 
       // Cada vez que se pulsa Calmar, lanza el efecto una sola vez.
+      if (current.greetCount !== handledGreetCount) {
+        handledGreetCount = current.greetCount
+        startWave(state)
+      }
       if (current.calmCount !== handledCalmCount) {
         handledCalmCount = current.calmCount
         soothe(state)

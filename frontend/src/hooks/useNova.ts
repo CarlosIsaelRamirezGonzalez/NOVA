@@ -108,6 +108,7 @@ type ServerEvent =
   | ({ type: 'usage' } & Usage)
   | { type: 'listen_state'; state: ListenState }
   | { type: 'heard'; text: string }
+  | { type: 'greeting' }
   | { type: 'recall'; memory_ids: number[] }
   | { type: 'gesture_reaction'; gesture: Gesture }
   | { type: 'history'; replace: boolean; messages: { role: 'user' | 'assistant'; text: string }[] }
@@ -140,6 +141,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
   const [error, setError] = useState<string | null>(null)
   const [blend, setBlend] = useState<EmotionBlend>([])
   const [calmCount, setCalmCount] = useState(0)
+  const [greetCount, setGreetCount] = useState(0)
   const [brain, setBrain] = useState<Brain | null>(null)
   const [recall, setRecall] = useState<Recall | null>(null)
   const [usage, setUsage] = useState<Usage | null>(null)
@@ -309,6 +311,13 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
         if (event.type === 'listen_state') {
           setListenState(event.state)
           if (event.state === 'hearing') playWakeSound()
+          return
+        }
+        if (event.type === 'greeting') {
+          discarding.current = false
+          turnFinished.current = false
+          setPhase('thinking')
+          setGreetCount((count) => count + 1)
           return
         }
         if (event.type === 'heard') {
@@ -578,6 +587,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     webSearch,
     blend,
     calmCount,
+    greetCount,
     photoCount,
     interruptCount,
     photosRemaining,

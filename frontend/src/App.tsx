@@ -111,6 +111,7 @@ export default function App() {
     webSearch,
     blend,
     calmCount,
+    greetCount,
     photoCount,
     interruptCount,
     photosRemaining,
@@ -172,6 +173,14 @@ export default function App() {
     busy || webSearch !== 'none' || listenState === 'hearing' || listenState === 'transcribing',
     Boolean(notice) || listenState === 'conversing',
   )
+
+  // Mientras la ocupas se queda contigo, de frente: no se va paseando a media plática.
+  const isAttending = busy || listenState === 'hearing' || listenState === 'transcribing'
+  useEffect(() => {
+    if (!IS_WIDGET) return
+    const bridge = (window as unknown as { novaDesktop?: { pauseWander: (reason: string, paused: boolean) => void } }).novaDesktop
+    bridge?.pauseWander('attending', isAttending)
+  }, [isAttending])
 
   // Con la compu abierta se queda en su lugar: no va a teclear volando.
   const isUsingLaptop = webSearch !== 'none'
@@ -269,6 +278,7 @@ export default function App() {
             activity={activity}
             lookAtInput={false}
             calmCount={calmCount}
+            greetCount={greetCount}
             photoCount={photoCount}
             interruptCount={interruptCount}
             getFace={camera.getFace}
@@ -315,6 +325,7 @@ export default function App() {
             activity={activity}
             lookAtInput={Boolean(draft) && phase === 'idle'}
             calmCount={calmCount}
+            greetCount={greetCount}
             photoCount={photoCount}
             interruptCount={interruptCount}
             getFace={camera.getFace}

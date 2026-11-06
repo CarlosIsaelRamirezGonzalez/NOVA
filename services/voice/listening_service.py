@@ -59,6 +59,7 @@ CLEAR_WAKE_IN_TEXT = re.compile(r"^\W*(?:oye\b[\s,]*)?nova\b[\s.,:;!?¡¿-]*", r
 ListenState = Literal["off", "loading", "waiting", "hearing", "conversing", "transcribing", "error"]
 StateHandler = Callable[[ListenState], None]
 TextHandler = Callable[[str], None]
+WakeHandler = Callable[[], None]
 
 
 def is_phantom(text: str) -> bool:
@@ -100,6 +101,7 @@ class ListeningService:
         whisper_model_path: Path,
         on_state: StateHandler,
         on_text: TextHandler,
+        on_wake: WakeHandler,
     ) -> None:
         """Guarda la configuración; los modelos se cargan hasta que se encienda.
 
@@ -108,11 +110,13 @@ class ListeningService:
             whisper_model_path: Archivo del modelo de Whisper.
             on_state: Recibe cada cambio de estado, desde otro hilo.
             on_text: Recibe cada petición transcrita, desde otro hilo.
+            on_wake: Avisa que la llamaron sin pedir nada más, desde otro hilo.
         """
         self.wake_model_path = wake_model_path
         self.whisper_model_path = whisper_model_path
         self.on_state = on_state
         self.on_text = on_text
+        self.on_wake = on_wake
         self.state: ListenState = "off"
         self.gate_open = True
         self.audio: queue.Queue[bytes | None] = queue.Queue()
@@ -236,11 +240,9 @@ class ListeningService:
         if self._has_speech(command):
             self._finish_command(heard, includes_wake_phrase=True)
         else:
-            self.command = bytearray()
-            self.heard_speech = False
-            self.silent_bytes = 0
-            self.silence_limit = NO_SPEECH_TIMEOUT_SECONDS
-            self._set_state("hearing")
+            # Solo la llamaron: saluda, y al terminar se sigue platicando sin volver a llamarla.
+            self.conversation_pending = True
+            self.on_wake()
 
     @staticmethod
     def _wake_end(words: list[object]) -> float | None:

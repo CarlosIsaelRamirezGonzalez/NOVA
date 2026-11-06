@@ -26,6 +26,9 @@ const APPEAR_SECONDS = 1.5
 const MAX_PARTICLES = 90
 const WANDER_AFTER_SECONDS = 4
 const SPIN_SECONDS = 1.15
+// El saludo: alza una mano y la mueve de lado a lado.
+const WAVE_SECONDS = 2.4
+const WAVE_ARM = 2.3
 // A partir de este rumbo se ve de espaldas: unos 30 grados alrededor de ir recto hacia arriba.
 const BACK_VIEW_ANGLE = 2.6
 // Baila si la alegría o la sorpresa llegan a este nivel de golpe; una buena noticia común no basta.
@@ -121,6 +124,7 @@ export type NovaState = {
   spin: number // cuánto lleva de la vuelta completa, en radianes
   isSpinning: boolean // si está dando una vuelta completa
   backTimer: number // segundos que le quedan enseñando la espalda
+  waveTimer: number // segundos que le quedan saludando con la mano
   dance: number // segundos que lleva bailando; negativo si no está bailando
   lastExcitement: number // emoción del paso anterior, para notar cuando sube de golpe
   keying: number // qué tan rápido teclea, de 0 a 1; se detiene mientras cuenta lo que encontró
@@ -184,6 +188,7 @@ export function createNovaState(): NovaState {
     spin: 0,
     isSpinning: false,
     backTimer: 0,
+    waveTimer: 0,
     dance: -1,
     lastExcitement: 0,
     typing: 0,
@@ -408,6 +413,15 @@ export function soothe(state: NovaState) {
       color: hex('#BFE6FF'),
     })
   }
+}
+
+/**
+ * Hace que salude con la mano.
+ *
+ * @param state - Estado de la animación.
+ */
+export function startWave(state: NovaState) {
+  state.waveTimer = WAVE_SECONDS
 }
 
 /**
@@ -677,6 +691,8 @@ export function stepNova(state: NovaState, input: NovaInput) {
   const flail = Math.sin(state.time * 15) * state.grabbed * (0.12 + Math.min(0.32, speed * 0.0005)) * motion
   // Al bailar, cada brazo sube y baja a contratiempo del otro.
   const danceWave = isDancing ? Math.sin(beat) * 0.6 : 0
+  state.waveTimer = Math.max(0, state.waveTimer - dt)
+  const waveGoal = state.waveTimer > 0 && !held ? WAVE_ARM + Math.sin(state.time * 11) * 0.38 : null
   const gesture = activity === 'speaking' ? Math.sin(state.time * 5.5) * 0.28 * (0.3 + state.level) : 0
   const stiffness = 62
   const damping = 9
@@ -688,7 +704,7 @@ export function stepNova(state: NovaState, input: NovaInput) {
   const happiness = input.blend.find((item) => item.name === 'happy')?.intensity ?? 0
   const happyWave = Math.sin(state.time * 8) * 0.28 * happiness
   ;[state.armLeft, state.armLeftVelocity] = stepArm(state.armLeft, state.armLeftVelocity, target.armLeft + gesture + happyWave + acting.armLeft + flail + danceWave)
-  ;[state.armRight, state.armRightVelocity] = stepArm(state.armRight, state.armRightVelocity, target.armRight - gesture - happyWave + acting.armRight - flail - danceWave)
+  ;[state.armRight, state.armRightVelocity] = stepArm(state.armRight, state.armRightVelocity, waveGoal ?? target.armRight - gesture - happyWave + acting.armRight - flail - danceWave)
 
   // Hacia dónde mira y se desplaza.
   const center = CANVAS_SIZE / 2

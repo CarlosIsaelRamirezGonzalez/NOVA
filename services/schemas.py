@@ -779,6 +779,16 @@ class ListenStateEvent(BaseModel):
     state: Literal["off", "loading", "waiting", "hearing", "conversing", "transcribing", "error"]
 
 
+class GreetingEvent(BaseModel):
+    """Aviso de que Nova saluda porque la llamaron; empieza un turno y alza la mano.
+
+    Attributes:
+        type: Discriminador del evento.
+    """
+
+    type: Literal["greeting"] = "greeting"
+
+
 class HeardEvent(BaseModel):
     """Lo que Carlos le pidió con la voz; empieza un turno.
 
@@ -983,6 +993,7 @@ ServerEvent = (
     | UsageEvent
     | ListenStateEvent
     | HeardEvent
+    | GreetingEvent
     | SearchStartEvent
     | SearchDoneEvent
     | MoveEvent

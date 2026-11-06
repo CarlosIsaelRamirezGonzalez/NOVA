@@ -2,6 +2,11 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.16.0 · 6 de noviembre de 2026 · Te saluda
+- Si la llamas sin pedir nada, aparece, alza la mano y dice "Hola Carlos, ¿cómo te puedo ayudar?", y luego te sigue escuchando.
+- El saludo no pasa por el modelo y su audio se genera una sola vez: es inmediato y solo gasta créditos la primera vez.
+- Mientras te atiende se queda quieta y de frente; solo se va a pasear unos segundos después.
+
 ## v0.15.0 · 6 de noviembre de 2026 · Nova, igual a su hoja
 - Se redibujó a Nova con las medidas y la paleta de la hoja del personaje, en sus tres vistas.
 - Llamas nuevas: lenguas onduladas que rematan en gancho, juntas en una sola masa, con brillos sueltos.

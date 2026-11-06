@@ -50,6 +50,8 @@ from services.schemas import (
     PhotoResult,
     RecallEvent,
     SearchDoneEvent,
+    EmotionComponent,
+    GreetingEvent,
     MoveEvent,
     SearchStartEvent,
     WriteDoneEvent,
@@ -85,6 +87,9 @@ ALLOWED_ORIGINS = frozenset(
 FRONTEND_DIST = Path(__file__).with_name("frontend") / "dist"
 
 # Estos textos van en español porque el usuario los lee en la interfaz.
+# Lo que dice al llamarla sin pedirle nada, y con qué ánimo.
+GREETING = "Hola Carlos, ¿cómo te puedo ayudar?"
+GREETING_MOOD = EmotionComponent(name="happy", intensity=0.5)
 TURN_FAILED_MESSAGE = "No pude responder. Revisa la terminal del servidor."
 INVALID_MESSAGE = "Mensaje vacío o demasiado largo."
 BUSY_MESSAGE = "Sigo respondiendo el turno anterior."
@@ -133,10 +138,14 @@ class NovaServer:
             config.whisper_model_path,
             self._on_listen_state,
             self._on_heard,
+            self._on_wake,
         )
         self.listening_socket: web.WebSocketResponse | None = None
         self.listening_camera_on = False
         self.voice_turn: asyncio.Task[None] | None = None
+        # El saludo siempre es el mismo: se genera una vez y no vuelve a gastar créditos de voz.
+        voice_id = config.elevenlabs_voice_id or "default"
+        self.greeting_audio_path = config.active_memory_path.parent / f"greeting-{voice_id}.mp3"
         self.loop: asyncio.AbstractEventLoop | None = None
 
     async def http_session_lifecycle(self, _app: web.Application) -> AsyncIterator[None]:
@@ -318,6 +327,58 @@ class NovaServer:
         """
         if self.loop:
             self.loop.call_soon_threadsafe(self._start_voice_turn, text)
+
+    def _on_wake(self) -> None:
+        """Recibe desde el hilo del micrófono que llamaron a Nova sin pedir nada más."""
+        if self.loop:
+            self.loop.call_soon_threadsafe(self._start_greeting)
+
+    def _start_greeting(self) -> None:
+        """Empieza el saludo, si hay una pantalla abierta y Nova está libre."""
+        socket = self.listening_socket
+        if socket is None or socket.closed or self.turn_lock.locked():
+            print("[Listen] no greeting: Nova is busy or no screen is open", flush=True)
+            return
+
+        # Se cierra el paso de audio de inmediato: su propia voz no debe volver a entrar.
+        self.listening.set_gate(False)
+        self.voice_turn = asyncio.create_task(self._greet(socket))
+
+    async def _greeting_audio(self) -> bytes | None:
+        """Lee el audio del saludo, y lo genera la primera vez.
+
+        Returns:
+            El audio en MP3, o `None` si no se pudo generar.
+        """
+        if self.greeting_audio_path.exists():
+            return await asyncio.to_thread(self.greeting_audio_path.read_bytes)
+        audio = await self.agent.tts.text_to_audio(self.session, GREETING, 0)
+        if audio:
+            await asyncio.to_thread(self.greeting_audio_path.write_bytes, audio)
+        return audio
+
+    async def _greet(self, socket: web.WebSocketResponse) -> None:
+        """Saluda sin pasar por el modelo: es inmediato y no gasta en la API.
+
+        Args:
+            socket: Pantalla que debe mostrar el saludo.
+        """
+        async with self.turn_lock:
+            try:
+                await self._send(socket, GreetingEvent())
+                blend = self.agent.emotional_state.absorb(EmotionBlend(components=[GREETING_MOOD]))
+                await self._send(socket, EmotionEvent(components=blend.components))
+                await self._send(socket, TokenEvent(text=GREETING))
+                audio = await self._greeting_audio()
+                if audio:
+                    await socket.send_bytes(audio)
+                self.agent.conversation.add_assistant_message(GREETING)
+                await self._send(socket, DoneEvent())
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                traceback.print_exc()
+                await self._send(socket, ErrorEvent(message=TURN_FAILED_MESSAGE))
 
     def _start_voice_turn(self, text: str) -> None:
         """Inicia un turno con lo que se oyó, si Nova está libre.

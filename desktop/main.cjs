@@ -17,6 +17,8 @@ const WANDER_SPEED = 170
 const COMMAND_SPEED = 1100
 const WANDER_MIN_DISTANCE = 220
 const WANDER_REST_MS = { min: 2500, max: 6000 }
+// Al aparecer, o al terminar de atenderte, se queda un rato contigo antes de irse a pasear.
+const ATTENTION_REST_MS = 8000
 // Si le pides que se quite, no regresa paseando a tapar lo que estás viendo.
 const COMMAND_REST_MS = 45_000
 // Primero voltea a ver a dónde va y luego arranca poco a poco.
@@ -520,7 +522,10 @@ if (!app.requestSingleInstanceLock()) {
   // La interfaz avisa cuándo debe verse Nova; responde al terminar para animar su entrada.
   ipcMain.handle('set-present', (_event, present) => {
     if (!widget) return
-    if (present && !widget.isVisible()) moveToCursorDisplay()
+    if (present && !widget.isVisible()) {
+      moveToCursorDisplay()
+      nextWanderAt = Math.max(nextWanderAt, Date.now() + ATTENTION_REST_MS)
+    }
     if (present) widget.showInactive()
     else widget.hide()
     if (!present) savePosition()
@@ -530,7 +535,10 @@ if (!app.requestSingleInstanceLock()) {
   ipcMain.on('move-to', (_event, place) => handleMoveCommand(place))
   ipcMain.on('pause-wander', (_event, reason, paused) => {
     if (paused) wanderPauses.add(reason)
-    else wanderPauses.delete(reason)
+    else {
+      wanderPauses.delete(reason)
+      nextWanderAt = Math.max(nextWanderAt, Date.now() + ATTENTION_REST_MS)
+    }
   })
 
   // El permiso del micrófono se pide hasta que enciendes el micrófono.
