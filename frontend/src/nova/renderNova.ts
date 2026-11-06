@@ -115,12 +115,13 @@ const PETALS: Petal[] = [
 function petalPoint(petal: Petal, scale: number, state: NovaState, hx: number, hy: number, s: number) {
   const { pose, hairPhase } = state
   const length = petal.length * scale * pose.hairLength * (1 + state.level * 0.14)
-  // Al girar, las llamas se van hacia la nuca y el viento las empuja contra su movimiento.
-  const angle = petal.angle - Math.sin(state.headYaw) * 0.33
-  const dirX = Math.sin(angle) * (1 - profileAmount(state.headYaw) * 0.12)
-  const dirY = -Math.cos(angle)
-  const sideX = Math.cos(angle)
-  const sideY = Math.sin(angle)
+  // Las llamas giran con la cabeza: las de arriba siguen hacia arriba y las de los lados se van a
+  // la nuca. Así, de perfil forman un abanico de la coronilla hacia atrás.
+  const towardNape = Math.abs(Math.sin(petal.angle))
+  const dirX = Math.sin(petal.angle) * Math.cos(state.flameYaw) - towardNape * Math.sin(state.flameYaw)
+  const dirY = -Math.cos(petal.angle)
+  const sideX = Math.cos(petal.angle) * Math.cos(state.flameYaw)
+  const sideY = Math.sin(petal.angle)
   const windX = Math.max(-16, Math.min(16, -state.grabVx * 0.022)) * state.grabbed * s * s
   const windY = Math.max(-8, Math.min(8, -state.grabVy * 0.012)) * state.grabbed * s * s
   const hook = petal.bend * length * (-0.42 * Math.sin(Math.PI * s) + 1.15 * s * s * s)
@@ -130,7 +131,7 @@ function petalPoint(petal: Petal, scale: number, state: NovaState, hx: number, h
   const curlUp = petal.curl * length * s * s * (1 - pose.hairDroop * 0.8)
   const droop = pose.hairDroop * length * 0.62 * s * s
   return {
-    x: hx - Math.sin(state.headYaw) * 3 + dirX * 18 + dirX * length * s + sideX * hook + sway + windX,
+    x: hx + dirX * 18 + dirX * length * s + sideX * hook + sway + windX,
     y: hy + dirY * 15 + dirY * length * s + sideY * hook - curlUp + droop + flick + windY,
   }
 }
@@ -187,12 +188,16 @@ function drawFlames(buffer: PixelBuffer, state: NovaState, hx: number, hy: numbe
   const light = pack(ramp.light)
   const core = pack(ramp.core)
 
-  for (const petal of PETALS) {
+  // Primero las que quedan del otro lado de la cabeza, y encima las más cercanas.
+  const depth = (petal: Petal) => -Math.sin(petal.angle) * Math.sin(state.flameYaw)
+  const ordered = [...PETALS].sort((a, b) => depth(a) - depth(b))
+
+  for (const petal of ordered) {
     drawPetal(buffer, { ...petal, seed: petal.seed + 11 }, state, hx, hy, 1.1, [
       { color: back, width: 1.12, extra: 1, end: 1 },
     ])
   }
-  for (const petal of PETALS) {
+  for (const petal of ordered) {
     drawPetal(buffer, petal, state, hx, hy, 1, [
       { color: deep, width: 1, extra: 0.3, end: 1 },
       { color: mid, width: 0.7, extra: 0, end: 0.86 },
@@ -595,7 +600,8 @@ function drawHead(buffer: PixelBuffer, state: NovaState, hx: number, hy: number)
   const gem = onRound(HEAD_RADIUS - 1, yaw * FACE_TURN)
   if (gem.facing < MIN_VISIBLE) return
   const gemX = hx + gem.x
-  const gemY = hy - 21
+  // Sigue la curva del casco: de lado baja junto con la orilla, en vez de quedarse flotando.
+  const gemY = hy - 21 * (1 - Math.min(1, Math.abs(gem.x) / 22.5) ** 2.45) ** (1 / 2.45)
   const radius = 6
   const bright = 0.35 + state.level * 0.65
   buffer.glow(gemX, gemY, 11 + state.level * 6, pose.ramp.light, 0.34 + state.level * 0.4, 3)

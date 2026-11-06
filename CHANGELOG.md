@@ -2,6 +2,10 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.14.1 · 6 de noviembre de 2026 · Llamas de perfil
+- Corregido: al voltear, las llamas se quedaban abiertas de frente. Ahora giran con la cabeza y forman un abanico de la coronilla a la nuca.
+- Corregido: de perfil, la gema flotaba fuera del casco y la cara quedaba demasiado angosta.
+
 ## v0.14.0 · 6 de noviembre de 2026 · La vuelta completa y el baile
 - Nova tiene vista de espaldas: nuca con costura y ranuras, espalda con costura y llamas por delante del casco.
 - Al volar hacia arriba se ve de espaldas, porque se aleja; en diagonal se ve de tres cuartos.

@@ -112,6 +112,7 @@ export type NovaState = {
   wasHeld: boolean // si en el paso anterior la estaban cargando
   headYaw: number // giro de la cabeza al dibujarla, en radianes; PI es de espaldas
   bodyYaw: number // giro del cuerpo al dibujarlo, que sigue a la cabeza con retraso
+  flameYaw: number // giro de las llamas, que alcanzan a la cabeza con un latigazo
   faceYaw: number // a dónde apunta la cabeza, sin contar las vueltas que esté dando
   faceYawVelocity: number // la cabeza se pasa un poco al voltear, y regresa
   torsoYaw: number // a dónde apunta el cuerpo, sin contar las vueltas
@@ -174,6 +175,7 @@ export function createNovaState(): NovaState {
     wasHeld: false,
     headYaw: 0,
     bodyYaw: 0,
+    flameYaw: 0,
     faceYaw: 0,
     faceYawVelocity: 0,
     torsoYaw: 0,
@@ -744,8 +746,10 @@ export function stepNova(state: NovaState, input: NovaInput) {
   const frontFacing = 1 - state.typing
   // Al bailar voltea de un lado a otro, a la mitad del ritmo de los brincos.
   const danceTurn = isDancing ? Math.sin(beat * 0.5) * 0.75 : 0
-  const headGoal = (travelYaw + state.lookX * 0.32 + danceTurn) * frontFacing
-  const bodyGoal = (travelYaw * 0.9 + state.lookX * 0.1 + danceTurn * 0.8) * frontFacing
+  // Si va a algún lado ya está volteando hacia allá: sumarle la mirada le escondería la cara.
+  const glance = heading ? 0 : state.lookX
+  const headGoal = (travelYaw + glance * 0.32 + danceTurn) * frontFacing
+  const bodyGoal = (travelYaw * 0.9 + glance * 0.1 + danceTurn * 0.8) * frontFacing
   const headTurn = shortestTurn(state.faceYaw, headGoal)
   // Al cambiar de lado parpadea, como en los dibujos animados: oculta el giro y lo hace más vivo.
   if (Math.abs(headTurn) > 1.2 && state.blink <= 0) state.blink = 1
@@ -764,6 +768,7 @@ export function stepNova(state: NovaState, input: NovaInput) {
   const spinEase = (angle: number) => Math.PI * 2 * (0.5 - 0.5 * Math.cos(Math.PI * clamp(angle / (Math.PI * 2), 0, 1)))
   state.headYaw = state.faceYaw + (state.isSpinning ? spinEase(state.spin) : 0)
   state.bodyYaw = state.torsoYaw + (state.isSpinning ? spinEase(state.spin - SPIN_BODY_LAG) : 0)
+  state.flameYaw += shortestTurn(state.flameYaw, state.headYaw) * (1 - Math.exp(-11 * dt))
 
   // Se desplaza con un resorte hacia el cursor.
   const previousX = state.x
