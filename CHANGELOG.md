@@ -2,6 +2,13 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.10.0 · 5 de noviembre de 2026 · Aparece cuando la llamas
+- Con el micrófono encendido, Nova se queda oculta y aparece al decir "Nova" u "Oye Nova".
+- Sale de su portal con un rebote y se va unos segundos después de que termina la plática.
+- Al aparecer no le quita el foco a la app que estés usando.
+- Se queda visible si el micrófono está apagado o si hay un aviso; se puede ocultar desde la barra de menú.
+- Corregido: cerrar la ventana completa apagaba el micrófono aunque la flotante siguiera abierta.
+
 ## v0.9.0 · 5 de noviembre de 2026 · Cargar a Nova
 - Se puede tomar a Nova y moverla por la pantalla; recuerda dónde quedó.
 - Animación al cargarla: alza los brazos, el cuerpo se queda atrás, deja chispas y el portal se apaga.

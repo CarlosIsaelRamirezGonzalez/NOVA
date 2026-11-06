@@ -261,9 +261,13 @@ class NovaServer:
         finally:
             self.sockets.discard(socket)
 
-            # Sin pantalla a la que responder, el micrófono no se queda abierto.
+            # Otra pantalla abierta hereda el micrófono; sin ninguna, no se queda abierto.
             if socket is self.listening_socket:
-                await self._set_listening(socket, False)
+                self.listening_socket = next(
+                    (other for other in self.sockets if not other.closed), None
+                )
+                if self.listening_socket is None:
+                    await self._set_listening(socket, False)
                 if self.voice_turn and not self.voice_turn.done():
                     self.voice_turn.cancel()
                     await asyncio.gather(self.voice_turn, return_exceptions=True)

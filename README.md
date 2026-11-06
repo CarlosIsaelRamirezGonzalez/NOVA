@@ -23,6 +23,6 @@ Compañera de IA personal con voz, emociones, memoria, cámara y búsqueda en in
 2. Instala Electron: `npm --prefix desktop install`, y si tu npm bloquea scripts,
    `node desktop/node_modules/electron/install.js`.
 3. Compila la interfaz: `npm --prefix frontend run build`.
-4. Abre la app: `npm --prefix desktop start`. Para hablarle, enciende el botón "Oye Nova".
+4. Abre la app: `npm --prefix desktop start`. Para hablarle, pasa el cursor sobre Nova y enciende el micrófono. Desde ahí se oculta y aparece cuando dices "Nova" u "Oye Nova"; también se muestra desde el icono de la barra de menú.
 
 Nunca subas `.env` ni `data/`: contienen tus claves y tus conversaciones.

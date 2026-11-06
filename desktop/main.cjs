@@ -122,6 +122,8 @@ function createWidget() {
     frame: false,
     resizable: false,
     hasShadow: false,
+    // La interfaz decide cuándo se ve; al aparecer no le quita el foco a lo que estés usando.
+    show: false,
     alwaysOnTop: true,
     fullscreenable: false,
     backgroundColor: '#00000000',
@@ -129,8 +131,11 @@ function createWidget() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       sandbox: true,
+      // Oculta sigue atenta a la conexión y a su voz, sin que el sistema la frene.
+      backgroundThrottling: false,
     },
   })
+  widget.once('ready-to-show', () => widget?.showInactive())
   widget.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   widget.setAlwaysOnTop(true, 'floating')
 
@@ -178,8 +183,7 @@ function createTray() {
         label: 'Mostrar u ocultar a Nova',
         click: () => {
           if (!widget) createWidget()
-          else if (widget.isVisible()) widget.hide()
-          else widget.show()
+          else widget.webContents.send('presence-command', 'toggle')
         },
       },
       { type: 'separator' },
@@ -233,7 +237,7 @@ async function runSmokeTest(shot) {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => widget?.show())
+  app.on('second-instance', () => widget?.webContents.send('presence-command', 'summon'))
 
   // Arrastrar: la ventana sigue al cursor, y al soltarla recuerda dónde quedó.
   ipcMain.on('drag-start', (_event, screenX, screenY) => {
@@ -256,6 +260,13 @@ if (!app.requestSingleInstanceLock()) {
     if (!widget) return
     const [x, y] = widget.getPosition()
     fs.writeFileSync(positionFile(), JSON.stringify({ x, y }))
+  })
+
+  // La interfaz avisa cuándo debe verse Nova; responde al terminar para animar su entrada.
+  ipcMain.handle('set-present', (_event, present) => {
+    if (!widget) return
+    if (present) widget.showInactive()
+    else widget.hide()
   })
 
   // El permiso del micrófono se pide hasta que enciendes el micrófono.

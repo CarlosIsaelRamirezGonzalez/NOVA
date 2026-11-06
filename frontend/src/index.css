@@ -37,3 +37,27 @@ html.widget,
 html.widget body {
   background: transparent;
 }
+
+/* Sale de su portal con un pequeño rebote y vuelve a entrar al irse. */
+.nova-presence {
+  transform-origin: 50% 88%;
+  transition:
+    opacity 0.3s ease-out,
+    transform 0.38s cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+
+.nova-away {
+  opacity: 0;
+  transform: translateY(28px) scale(0.72);
+  transition-timing-function: ease-in;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nova-presence {
+    transition: opacity 0.2s linear;
+  }
+
+  .nova-away {
+    transform: none;
+  }
+}
