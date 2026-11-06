@@ -26,6 +26,8 @@ const APPEAR_SECONDS = 1.5
 const MAX_PARTICLES = 90
 const WANDER_AFTER_SECONDS = 4
 const SPIN_SECONDS = 1.15
+// A partir de este rumbo se ve de espaldas: unos 30 grados alrededor de ir recto hacia arriba.
+const BACK_VIEW_ANGLE = 2.6
 // Baila si la alegría o la sorpresa llegan a este nivel de golpe; una buena noticia común no basta.
 const DANCE_THRESHOLD = 0.7
 const DANCE_JUMP = 0.1
@@ -441,8 +443,8 @@ const shortestTurn = (from: number, to: number) => {
 }
 
 /**
- * Convierte una dirección en un giro: abajo se ve de frente, a un lado casi de perfil y arriba de
- * espaldas, porque se está alejando.
+ * Convierte una dirección en un giro. Se queda en las vistas de la hoja del personaje: abajo se ve
+ * de frente, de lado casi de perfil, y solo de espaldas si sube casi en línea recta.
  *
  * @param x - Parte horizontal de la dirección.
  * @param y - Parte vertical de la dirección; positiva hacia abajo.
@@ -451,10 +453,7 @@ const shortestTurn = (from: number, to: number) => {
 function yawForHeading(x: number, y: number) {
   const angle = Math.atan2(Math.abs(x), y)
   const sideAngle = Math.PI / 2
-  const yaw =
-    angle <= sideAngle
-      ? angle * (MAX_YAW / sideAngle)
-      : MAX_YAW + (angle - sideAngle) * ((Math.PI - MAX_YAW) / sideAngle)
+  const yaw = angle <= sideAngle ? angle * (MAX_YAW / sideAngle) : angle > BACK_VIEW_ANGLE ? Math.PI : MAX_YAW
   return Math.sign(x || 1) * yaw
 }
 

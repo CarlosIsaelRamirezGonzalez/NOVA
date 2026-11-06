@@ -2,12 +2,17 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.14.2 · 6 de noviembre de 2026 · Fiel a la hoja del personaje
+- De espaldas, el fuego cubre toda la nuca, como en la referencia; ya no se ve el casco ni las costuras que se habían inventado.
+- De perfil: visor más grande, un solo ojo, sin gema, con la bisagra del casco y un solo brazo que cuelga hacia atrás.
+- La cola se curva más hacia atrás y las llamas se recargan hacia la nuca.
+
 ## v0.14.1 · 6 de noviembre de 2026 · Llamas de perfil
 - Corregido: al voltear, las llamas se quedaban abiertas de frente. Ahora giran con la cabeza y forman un abanico de la coronilla a la nuca.
 - Corregido: de perfil, la gema flotaba fuera del casco y la cara quedaba demasiado angosta.
 
 ## v0.14.0 · 6 de noviembre de 2026 · La vuelta completa y el baile
-- Nova tiene vista de espaldas: nuca con costura y ranuras, espalda con costura y llamas por delante del casco.
+- Nova tiene vista de espaldas.
 - Al volar hacia arriba se ve de espaldas, porque se aleja; en diagonal se ve de tres cuartos.
 - Se le puede pedir que dé una vuelta o que enseñe la espalda; a veces da una vuelta sola al llegar.
 - Baila si algo la pone muy feliz o la sorprende de golpe: brinca, se mece, alza los brazos, da una vuelta y suelta notas.

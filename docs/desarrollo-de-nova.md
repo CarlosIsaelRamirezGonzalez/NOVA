@@ -35,7 +35,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | 19. Manos en la compu | `v0.11.0` | Pedirle que termine un mensaje de prueba y verla teclear | Antes de darle manos se le quitó el chantaje, y el Enter se eliminó desde el código |
 | 20. Una mascota en el escritorio | `v0.12.0` | Decirle "muévete, no me dejas ver" y verla volar a otra esquina | Ocultarla no era apagarla: tuvo que aparecer solo cuando se le llama |
 | 21. Nova voltea | `v0.13.0` | Verla girar y volar de perfil de un lado a otro | Sin dibujar cada ángulo: la cabeza se calcula como algo redondo, y en la primera prueba el audífono parecía otro ojo |
-| 22. La vuelta completa y el baile | `v0.14.0` | Pedirle "da una vuelta", verla de espaldas y darle una gran noticia para que baile | Lo que yo inventé de perfil no era de ella: se quitó, y la espalda solo lleva marcas planas |
+| 22. La vuelta completa y el baile | `v0.14.2` | Comparar la hoja del personaje con Nova de perfil y de espaldas, y darle una gran noticia para que baile | Se dibujó sin revisar la hoja del personaje: las antenas y las costuras inventadas se quitaron |
 
 ## Decisiones y por qué
 | Decisión | Alternativa | Motivo |
