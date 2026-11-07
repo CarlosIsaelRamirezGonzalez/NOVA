@@ -2,6 +2,11 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.21.0 · 7 de noviembre de 2026 · Directa, con despedida y saludos variados
+- Respuestas más directas y simples: contesta en la primera frase, sin metáforas ni sermones.
+- Si me despido ("adiós", "ya vete", "es todo", "buenas noches"), se despide en una línea, se oculta y deja de escuchar la plática hasta que la vuelva a llamar.
+- El saludo cambia: "¿Qué pasó?", "Hola, ¿qué tal?", "Aquí estoy", "Te escucho", "Dime"… Nunca repite el mismo dos veces seguidas, y cada audio se genera una sola vez.
+
 ## v0.20.5 · 7 de noviembre de 2026 · Plática más humana
 - Nova ya casi no dice mi nombre: solo en un momento serio o tierno.
 - Menos muletillas al empezar, como "Ay" o "Qué gusto", y a lo mucho una etiqueta de voz por respuesta, solo si es real.

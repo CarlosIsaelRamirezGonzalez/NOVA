@@ -4,6 +4,8 @@ Uso: `python server.py`
 """
 
 import asyncio
+import hashlib
+import random
 import time
 import traceback
 from pathlib import Path
@@ -95,7 +97,17 @@ FRONTEND_DIST = Path(__file__).with_name("frontend") / "dist"
 
 # Estos textos van en español porque el usuario los lee en la interfaz.
 # Lo que dice al llamarla sin pedirle nada, y con qué ánimo.
-GREETING = "Hola Carlos, ¿cómo te puedo ayudar?"
+# Lo que dice si la llamo sin pedir nada; cambia para que no suene a máquina, y casi nunca usa mi nombre.
+GREETINGS = (
+    "¿Qué pasó?",
+    "Hola, ¿qué tal?",
+    "Aquí estoy.",
+    "Te escucho.",
+    "Dime.",
+    "¿Qué onda?",
+    "Hola, aquí ando.",
+    "Hola Carlos, ¿cómo te puedo ayudar?",
+)
 GREETING_MOOD = EmotionComponent(name="happy", intensity=0.5)
 TURN_FAILED_MESSAGE = "No pude responder. Revisa la terminal del servidor."
 INVALID_MESSAGE = "Mensaje vacío o demasiado largo."
@@ -155,9 +167,10 @@ class NovaServer:
         self.listening_socket: web.WebSocketResponse | None = None
         self.listening_camera_on = False
         self.voice_turn: asyncio.Task[None] | None = None
-        # El saludo siempre es el mismo: se genera una vez y no vuelve a gastar créditos de voz.
-        voice_id = config.elevenlabs_voice_id or "default"
-        self.greeting_audio_path = config.active_memory_path.parent / f"greeting-{voice_id}.mp3"
+        # Cada saludo se genera una vez y se guarda: después ya no gasta créditos de voz.
+        self.greeting_voice_id = config.elevenlabs_voice_id or "default"
+        self.greeting_folder = config.active_memory_path.parent / "greetings"
+        self.last_greeting: str | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
 
     async def http_session_lifecycle(self, _app: web.Application) -> AsyncIterator[None]:
@@ -381,17 +394,23 @@ class NovaServer:
         self.listening.set_gate(False)
         self.voice_turn = asyncio.create_task(self._greet(socket))
 
-    async def _greeting_audio(self) -> bytes | None:
-        """Lee el audio del saludo, y lo genera la primera vez.
+    async def _greeting_audio(self, greeting: str) -> bytes | None:
+        """Lee el audio de un saludo, y lo genera la primera vez.
+
+        Args:
+            greeting: Texto del saludo.
 
         Returns:
             El audio en MP3, o `None` si no se pudo generar.
         """
-        if self.greeting_audio_path.exists():
-            return await asyncio.to_thread(self.greeting_audio_path.read_bytes)
-        audio = await self.agent.tts.text_to_audio(self.session, GREETING, 0)
+        key = hashlib.sha256(f"{self.greeting_voice_id}:{greeting}".encode()).hexdigest()[:16]
+        path = self.greeting_folder / f"{key}.mp3"
+        if path.exists():
+            return await asyncio.to_thread(path.read_bytes)
+        audio = await self.agent.tts.text_to_audio(self.session, greeting, 0)
         if audio:
-            await asyncio.to_thread(self.greeting_audio_path.write_bytes, audio)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(path.write_bytes, audio)
         return audio
 
     async def _greet(self, socket: web.WebSocketResponse) -> None:
@@ -405,11 +424,14 @@ class NovaServer:
                 await self._send(socket, GreetingEvent())
                 blend = self.agent.emotional_state.absorb(EmotionBlend(components=[GREETING_MOOD]))
                 await self._send(socket, EmotionEvent(components=blend.components))
-                await self._send(socket, TokenEvent(text=GREETING))
-                audio = await self._greeting_audio()
+                # Nunca repite el mismo saludo dos veces seguidas.
+                greeting = random.choice([text for text in GREETINGS if text != self.last_greeting])
+                self.last_greeting = greeting
+                await self._send(socket, TokenEvent(text=greeting))
+                audio = await self._greeting_audio(greeting)
                 if audio:
                     await socket.send_bytes(audio)
-                self.agent.conversation.add_assistant_message(GREETING)
+                self.agent.conversation.add_assistant_message(greeting)
                 await self._send(socket, DoneEvent())
             except asyncio.CancelledError:
                 raise
@@ -432,6 +454,9 @@ class NovaServer:
             """Muestra lo que se oyó y responde."""
             await self._send(socket, HeardEvent(text=text))
             await self._run_turn(socket, text, self.listening_camera_on)
+            # Si me despedí, se termina la plática: para volver a hablarle, la llamo otra vez.
+            if self.agent.said_goodbye:
+                self.listening.end_conversation()
 
         # Se cierra el paso de audio de inmediato: su propia voz no debe volver a entrar.
         self.listening.set_gate(False)

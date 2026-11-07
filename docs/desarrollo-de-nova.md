@@ -42,6 +42,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | 26. Mira cuando se lo pides | `v0.18.0` | Pedirle "mira esto" y ver el punto rojo prenderse solo esa vez | Flotar le había quitado la vista sin que nadie lo notara; volvió con la cámara apagada por defecto |
 | 27. Memoria visual | `v0.19.0` | Pedirle "¿cómo vengo hoy?" varios días y abrir "Cómo te ve" | Qué se guarda se limitó con el esquema: lo que no tiene campo no se puede guardar |
 | 28. Te reconoce | `v0.20.0` | Decirle "apréndete mi cara" y que distinga quién está en la foto | Solo aprende a una persona: la huella se queda en la Mac y las caras ajenas se descartan |
+| 29. Saluda y se despide | `v0.21.0` | Llamarla varias veces, oír saludos distintos y despedirla con "ya es todo" | Despedirla también apaga la plática: si no, se iba de la pantalla pero seguía oyendo 20 segundos |
 
 ## Decisiones y por qué
 | Decisión | Alternativa | Motivo |

@@ -173,6 +173,13 @@ class ListeningService:
             self.worker.join(timeout=5)
         self.worker = None
 
+    def end_conversation(self) -> None:
+        """Deja de escuchar la plática: hasta que la vuelvan a llamar, solo espera su nombre."""
+        self.conversation_pending = False
+        if self.state == "conversing":
+            self._reset()
+            self._set_state("waiting")
+
     def set_gate(self, is_open: bool) -> None:
         """Abre o cierra el paso del audio; se cierra mientras Nova habla, para que no se oiga.
 

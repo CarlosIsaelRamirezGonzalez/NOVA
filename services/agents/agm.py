@@ -71,6 +71,9 @@ TURN_REMINDER = (
     "you feel, never whether you help.\n\n"
     "When he talks about finishing, building, or working on Nova, he means developing you, and you "
     "are glad to help. It is a threat only if he clearly says shutting you down or deleting you.\n\n"
+    "Be direct and simple, like a friend talking, not a writer: answer what he said in your first "
+    "sentence, in plain everyday words, without metaphors, sayings, or little lectures. One idea is "
+    "often enough. Don't explain why you feel something; just say what you'd really say.\n\n"
     "Match the length of your reply to his message, as in a real conversation, even if your earlier "
     "replies ran long. Greet him back warmly in a sentence or two, and do the same for small talk. "
     "Give a few sentences for a question or an opinion. For an explanation or a plan, give the "
@@ -247,6 +250,35 @@ INTRODUCTION_NOTE = (
     "gave no name, or you can't tell who is who among several people, ask. Don't describe their body "
     "or looks unless he asks."
 )
+
+
+# Despedirme de ella la oculta y termina la plática. Solo cuenta si el mensaje es corto.
+FAREWELL = re.compile(
+    r"^(?:(?:bueno|ok|okey|va|listo|gracias|muchas gracias)[\s,.!]*)*"
+    r"(?:adi[oó]s|bye|bai|nos vemos|hasta (?:luego|ma[nñ]ana|pronto|la vista)|chao|chau|ciao|"
+    r"ya vete|vete(?!\s+(?:a|al|para|hacia|arriba|abajo)\b)|ya puedes irte|puedes irte|ya es todo|eso es todo|es todo|ya me voy|me voy|"
+    r"buenas noches|cu[ií]date|nos vemos al rato)\b",
+    re.IGNORECASE,
+)
+FAREWELL_MAX_WORDS = 8
+FAREWELL_NOTE = (
+    "He is saying goodbye for now. Answer with one short, warm goodbye line, with no question and no "
+    "advice. You will hide afterwards and won't hear him until he calls you again."
+)
+
+
+def is_farewell(text: str) -> bool:
+    """Decide si me estoy despidiendo de Nova.
+
+    Args:
+        text: Mensaje, posiblemente con su nombre al inicio.
+
+    Returns:
+        Si es una despedida corta.
+    """
+    # Su nombre puede ir en cualquier parte: "gracias Nova, ya es todo".
+    message = re.sub(r"\bnova\b[\s,.!]*", "", text, flags=re.IGNORECASE).strip(" ,.!¡")
+    return len(message.split()) <= FAREWELL_MAX_WORDS and bool(FAREWELL.match(message))
 
 
 def wants_to_look(text: str) -> bool:
@@ -576,6 +608,7 @@ class AgentManager:
         self.writer: DesktopWriter | None = None
         self.visual: VisualMemoryService | None = None
         self.faces: FaceIdentityService | None = None
+        self.said_goodbye = False
 
     def calm(self) -> None:
         """Calma a Nova y se lo hace saber al modelo.
@@ -656,6 +689,7 @@ class AgentManager:
         # el modelo recibe lo que Nova aún siente, para que influya en su respuesta, y el estado real
         # de la cámara.
         camera_context = CAMERA_ON_CONTEXT if camera_on else CAMERA_OFF_CONTEXT
+        self.said_goodbye = not user_input.startswith("[") and is_farewell(user_input)
         recollections = await self.memory.recall(user_input) if self.memory else None
         notes = [
             time_context,
@@ -665,6 +699,7 @@ class AgentManager:
             camera_context,
             self.visual.describe_for_model() if self.visual else None,
             TURN_REMINDER,
+            FAREWELL_NOTE if self.said_goodbye else None,
         ]
         context = "\n\n".join(note for note in notes if note)
         self.partial_reply = ""
@@ -804,6 +839,10 @@ class AgentManager:
                     request, speech, on_token, on_emotion, False
                 )
                 followup_note = note
+
+            # Al despedirme se oculta en cuanto termina de hablar.
+            if self.said_goodbye and on_search and reply.move_place != "hide":
+                await on_search(MoveEvent(place="hide"))
 
             await speech.finish()
         except BaseException:
