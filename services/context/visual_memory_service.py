@@ -1,4 +1,4 @@
-"""Memoria visual: lo que Nova nota de cómo se ve Carlos, como datos y nunca como fotos."""
+"""Memoria visual: lo que Nova nota de cómo me veo, como datos y nunca como fotos."""
 
 import asyncio
 import re
@@ -14,15 +14,22 @@ from services.schemas import (
     ImagePart,
     ImageUrl,
     TextPart,
+    FaceCheck,
     VisualObservation,
     VisualProfileEvent,
     VisualRecord,
     VisualTrend,
 )
 
-# Solo se guarda si Carlos habla de sí mismo; "mira esta planta" no dice nada de cómo se viste.
+# Solo se guarda si hablo de mí; "mira esta planta" no dice nada de cómo me visto.
 SELF_LOOK = re.compile(
     r"\b(me|mi|mis|traigo|llevo|visto|vestido|vestida|ando|estoy|vengo|puesto|puesta)\b",
+    re.IGNORECASE,
+)
+# Si hablo de otra persona, lo que se ve en la foto no es mío, aunque diga "mi".
+ABOUT_SOMEONE_ELSE = re.compile(
+    r"\b(te presento|presentar|conozcas|conoce a|sal[uú]da\w*|mi (?:mam|pap|herman|prim|t[ií][oa]|amig|novi|"
+    r"espos|hij|abuel|compa|jef|sobrin|cu[nñ]ad|suegr|vecin))",
     re.IGNORECASE,
 )
 # Campos que forman tendencias. Solo existen estos: el esquema no deja guardar otra cosa.
@@ -111,7 +118,7 @@ def compute_trends(records: list[VisualRecord], now: float) -> list[VisualTrend]
 
 
 class VisualMemoryService:
-    """Extrae lo que se ve en las fotos que Carlos pide y lleva la cuenta de sus costumbres."""
+    """Extrae lo que se ve en las fotos que pido y lleva la cuenta de mis costumbres."""
 
     def __init__(
         self,
@@ -134,14 +141,20 @@ class VisualMemoryService:
         self.clock = clock
         self.pending: set[asyncio.Task[None]] = set()
 
-    def observe_later(self, photo_url: str, user_input: str) -> None:
+    def observe_later(self, photo_url: str, user_input: str, face: FaceCheck | None = None) -> None:
         """Registra una foto en segundo plano, para no retrasar la respuesta.
 
         Args:
             photo_url: Foto como data URL; no se conserva.
-            user_input: Mensaje con el que Carlos pidió la foto.
+            user_input: Mensaje con el que pedí la foto.
+            face: Si ya aprendió mi cara, a quién reconoció en la foto.
         """
-        if not SELF_LOOK.search(user_input):
+        if ABOUT_SOMEONE_ELSE.search(user_input):
+            return
+
+        # Si conoce mi cara, ella decide; si no, solo cuenta si hablo de mí.
+        is_him = face.carlos_present and face.face_count == 1 if face else SELF_LOOK.search(user_input)
+        if not is_him:
             return
         task = asyncio.create_task(self._observe(photo_url))
         self.pending.add(task)
@@ -184,7 +197,7 @@ class VisualMemoryService:
             traceback.print_exc()
 
     def describe_for_model(self) -> str | None:
-        """Redacta lo que Nova sabe de cómo se ve Carlos.
+        """Redacta lo que Nova sabe de cómo me veo.
 
         Returns:
             La nota para el modelo, o `None` si aún no hay tendencias.

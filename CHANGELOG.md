@@ -2,6 +2,38 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## v0.20.5 · 7 de noviembre de 2026 · Plática más humana
+- Nova ya casi no dice mi nombre: solo en un momento serio o tierno.
+- Menos muletillas al empezar, como "Ay" o "Qué gusto", y a lo mucho una etiqueta de voz por respuesta, solo si es real.
+- Ya no menciona el día ni la hora si no viene al caso, ni repite el mismo consejo en cada respuesta.
+- En una plática de prueba de 20 respuestas, mi nombre bajó de 16 a 0 y las etiquetas de voz de 20 a 2.
+
+## v0.20.4 · 6 de noviembre de 2026 · Aparece al despertar la Mac
+- Corregido: tras dormir la Mac, Nova oía y respondía, pero su ventana ya no aparecía.
+- Al mostrarse reafirma su nivel y su posición; también al despertar, al desbloquear o al cambiar de monitor.
+- Se reanuda el audio si quedó en pausa después de dormir.
+
+## v0.20.3 · 6 de noviembre de 2026 · Sin apagarla por accidente
+- Se quitó el botón de micrófono de la ventana flotante: quedaba junto a "Parar" y se podía apagar sin querer, y entonces Nova ya no oía a nadie.
+- El micrófono ahora se controla desde el icono de la barra de menú.
+- Si queda apagado, Nova aparece unos segundos para avisarlo, y al reabrir la app se vuelve a encender.
+
+## v0.20.2 · 6 de noviembre de 2026 · Mira de verdad
+- Corregido: con "Mira." o "Nova, mira" a veces contestaba sin ver, y al presentarle a alguien saludaba sin mirar. Ahora esas frases toman la foto directamente.
+- Al presentarle a alguien saluda por el nombre que le diste, y pregunta si no sabe quién es quién.
+- Esas fotos no esperan los 10 segundos entre una y otra, y no cuentan como cómo te ves tú.
+
+## v0.20.1 · 6 de noviembre de 2026 · Ya no se queda muda
+- Corregido: si el micrófono ya estaba encendido al abrir la app, Nova oía y respondía, pero sin sonido.
+
+## v0.20.0 · 6 de noviembre de 2026 · Te reconoce
+- Dile "Nova, apréndete mi cara": toma tres fotos y desde entonces te reconoce en las fotos que le pides.
+- Corre en la Mac con `buffalo_sc` de InsightFace; la huella queda en un archivo local y no se sube a la nube.
+- Si conoce tu cara, la memoria visual solo guarda fotos donde estás tú solo.
+- Las caras de otras personas se comparan y se descartan: no se guarda nada de ellas.
+- Se borra desde "Cómo te ve" o diciendo "olvida mi cara".
+- Instalación: `.venv/bin/python scripts/download_face_model.py`. El modelo es solo para uso no comercial.
+
 ## v0.19.0 · 6 de noviembre de 2026 · Memoria visual
 - Al pedirle que te vea, Nova anota prenda, color, gorra, lentes, cabello y vello facial; la foto no se guarda.
 - Las costumbres se calculan contando, a partir de 5 fotos, y lo reciente pesa más.

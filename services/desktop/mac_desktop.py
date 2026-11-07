@@ -245,7 +245,7 @@ def capture_window(window_id: int) -> str | None:
 
 
 def _user_took_over(started_at: float) -> bool:
-    """Comprueba si Carlos movió el mouse o presionó Esc desde que empezó a teclear.
+    """Comprueba si moví el mouse o presioné Esc desde que empezó a teclear.
 
     Args:
         started_at: Momento en que empezó, de `time.monotonic`.
@@ -272,7 +272,7 @@ def _post_character(character: str) -> None:
     units = (c_uint16 * (len(encoded) // 2)).from_buffer_copy(encoded)
     for is_down in (True, False):
         event = _core_graphics.CGEventCreateKeyboardEvent(None, 0, is_down)
-        # Sin esto, una tecla que Carlos tenga presionada podría convertirse en un atajo.
+        # Sin esto, una tecla que yo tenga presionada podría convertirse en un atajo.
         _core_graphics.CGEventSetFlags(event, 0)
         _core_graphics.CGEventKeyboardSetUnicodeString(event, len(units), units)
         _core_graphics.CGEventPost(SESSION_EVENT_TAP, event)
@@ -280,7 +280,7 @@ def _post_character(character: str) -> None:
 
 
 def type_text(text: str, app: FrontApp, stop: threading.Event) -> TypingStatus:
-    """Teclea un texto. Se detiene si Carlos toma el control o si cambia la app al frente.
+    """Teclea un texto. Se detiene si tomo el control o si cambia la app al frente.
 
     Args:
         text: Texto ya revisado; debe venir sin caracteres de control, para que no exista Enter.

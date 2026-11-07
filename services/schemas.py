@@ -63,7 +63,7 @@ WriteStatus = (
 
 
 class FrontApp(BaseModel):
-    """App que Carlos tiene al frente.
+    """App que tengo al frente.
 
     Attributes:
         pid: Proceso de la app.
@@ -193,7 +193,7 @@ class WriteArguments(BaseModel):
     """Argumentos con los que el modelo pide escribir en la app al frente.
 
     Attributes:
-        instructions: Qué quiere Carlos que se escriba, con los datos que él dio.
+        instructions: Qué quiero que se escriba, con los datos que di.
     """
 
     instructions: str
@@ -296,10 +296,11 @@ class FilteredText(BaseModel):
         text: Texto limpio que se puede mostrar y pronunciar.
         blends: Mezclas encontradas, en orden de aparición.
         photo_requested: Si Nova pidió ver la cámara.
-        forget_requested: Si Nova decidió olvidar algo porque Carlos se lo pidió.
+        forget_requested: Si Nova decidió olvidar algo porque se lo pedí.
         search_query: Lo que Nova quiere buscar en internet, si pidió hacerlo.
         write_instructions: Lo que Nova debe escribir en la app al frente, si pidió hacerlo.
         move_place: A dónde quiere moverse Nova en la pantalla, si pidió hacerlo.
+        learn_face_requested: Si Nova debe aprender mi cara porque se lo pedí.
     """
 
     text: str = ""
@@ -309,6 +310,7 @@ class FilteredText(BaseModel):
     search_query: str | None = None
     write_instructions: str | None = None
     move_place: MovePlace | None = None
+    learn_face_requested: bool = False
 
 
 class VisualObservation(BaseModel):
@@ -337,6 +339,44 @@ class VisualObservation(BaseModel):
     glasses: Literal["yes", "no", "unknown"]
     hair_length: Literal["shaved", "short", "medium", "long", "unknown"]
     facial_hair: Literal["none", "stubble", "beard", "mustache", "unknown"]
+
+
+class FaceDetection(BaseModel):
+    """Una cara encontrada en una imagen.
+
+    Attributes:
+        box: Rectángulo: izquierda, arriba, derecha y abajo.
+        score: Confianza del detector.
+        points: Ojos, nariz y comisuras.
+    """
+
+    box: list[float]
+    score: float
+    points: list[list[float]]
+
+
+class FaceCheck(BaseModel):
+    """Resultado de buscarme en una foto.
+
+    Attributes:
+        face_count: Cuántas caras hay.
+        carlos_present: Si una de ellas es la mía.
+    """
+
+    face_count: int
+    carlos_present: bool
+
+
+class FaceEnrollment(BaseModel):
+    """Resultado de aprender mi cara.
+
+    Attributes:
+        status: Si la aprendió o por qué no.
+        photos_used: Cuántas fotos sirvieron.
+    """
+
+    status: Literal["learned", "many_faces", "no_clear_face", "no_camera"]
+    photos_used: int = 0
 
 
 class VisualRecord(BaseModel):
@@ -372,7 +412,7 @@ class VisualTrend(BaseModel):
 
 
 class ForgetDecision(BaseModel):
-    """Lo que decide el modelo que resuelve qué quiere olvidar Carlos.
+    """Lo que decide el modelo que resuelve qué quiero olvidar.
 
     Attributes:
         memory_ids: Recuerdos que hay que borrar.
@@ -507,6 +547,7 @@ class StreamedReply(BaseModel):
         search_query: Lo que Nova quiere buscar en internet, si pidió hacerlo.
         write_instructions: Lo que Nova debe escribir en la app al frente, si pidió hacerlo.
         move_place: A dónde quiere moverse Nova en la pantalla, si pidió hacerlo.
+        learn_face_requested: Si Nova debe aprender mi cara porque se lo pedí.
     """
 
     raw_text: str = ""
@@ -515,6 +556,7 @@ class StreamedReply(BaseModel):
     search_query: str | None = None
     write_instructions: str | None = None
     move_place: MovePlace | None = None
+    learn_face_requested: bool = False
 
 
 class PhotoResult(BaseModel):
@@ -610,6 +652,16 @@ class ForgetVisualRequest(BaseModel):
 
     type: Literal["forget_visual"] = "forget_visual"
     observation_id: int | None = None
+
+
+class ForgetFaceRequest(BaseModel):
+    """Petición del navegador para borrar la huella de la cara.
+
+    Attributes:
+        type: Discriminador de la petición.
+    """
+
+    type: Literal["forget_face"] = "forget_face"
 
 
 class ForgetMemoryRequest(BaseModel):
@@ -834,12 +886,14 @@ class VisualProfileEvent(BaseModel):
         trends: Costumbres con evidencia suficiente.
         observations: Observaciones, de la más nueva a la más antigua.
         min_observations: Cuántas se necesitan para hablar de una costumbre.
+        face_enrolled: Si ya aprendió mi cara.
     """
 
     type: Literal["visual_profile"] = "visual_profile"
     trends: list[VisualTrend]
     observations: list[VisualRecord]
     min_observations: int
+    face_enrolled: bool = False
 
 
 class UsageEvent(BaseModel):
@@ -888,7 +942,7 @@ class GreetingEvent(BaseModel):
 
 
 class HeardEvent(BaseModel):
-    """Lo que Carlos le pidió con la voz; empieza un turno.
+    """Lo que le pedí con la voz; empieza un turno.
 
     Attributes:
         type: Discriminador del evento.
@@ -1118,7 +1172,8 @@ CLIENT_REQUEST = TypeAdapter(
         | MicGateRequest
         | ForgetMemoryRequest
         | VisualProfileRequest
-        | ForgetVisualRequest,
+        | ForgetVisualRequest
+        | ForgetFaceRequest,
         Field(discriminator="type"),
     ]
 )

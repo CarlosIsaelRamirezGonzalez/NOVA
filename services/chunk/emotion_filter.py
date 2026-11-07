@@ -9,6 +9,7 @@ VALID_EMOTIONS = frozenset(get_args(Emotion))
 CALM_EMOTION = "neutral"
 PHOTO_TAG = "photo"
 FORGET_TAG = "forget"
+LEARN_FACE_PATTERN = re.compile(r"\[\[\s*learn_face\s*\]\]", re.IGNORECASE)
 DEFAULT_INTENSITY = 1.0
 
 # Admite `[[search: clima en Monterrey]]`; va antes que las emociones por el `:` de su formato.
@@ -108,6 +109,12 @@ class EmotionTagFilter:
             if search:
                 result.search_query = result.search_query or search.group(1)
                 self.pending = self.pending[search.end() :]
+                continue
+
+            learn_face = LEARN_FACE_PATTERN.match(self.pending)
+            if learn_face:
+                result.learn_face_requested = True
+                self.pending = self.pending[learn_face.end() :]
                 continue
 
             move = MOVE_PATTERN.match(self.pending)

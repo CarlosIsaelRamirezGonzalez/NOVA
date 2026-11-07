@@ -41,6 +41,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | 25. Se marea | `v0.17.0` | Agarrarla, sacudirla y verla tambalearse con estrellitas | Se detecta contando cambios bruscos de dirección, para que moverla normal no la maree |
 | 26. Mira cuando se lo pides | `v0.18.0` | Pedirle "mira esto" y ver el punto rojo prenderse solo esa vez | Flotar le había quitado la vista sin que nadie lo notara; volvió con la cámara apagada por defecto |
 | 27. Memoria visual | `v0.19.0` | Pedirle "¿cómo vengo hoy?" varios días y abrir "Cómo te ve" | Qué se guarda se limitó con el esquema: lo que no tiene campo no se puede guardar |
+| 28. Te reconoce | `v0.20.0` | Decirle "apréndete mi cara" y que distinga quién está en la foto | Solo aprende a una persona: la huella se queda en la Mac y las caras ajenas se descartan |
 
 ## Decisiones y por qué
 | Decisión | Alternativa | Motivo |
@@ -57,6 +58,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | Electron | Tauri | Sin instalar Rust, y usa el mismo Chromium donde ya se probó la animación |
 | Teclear sin Enter, con reglas en el código | Confiar en lo que diga el prompt | Una instrucción se puede ignorar; un carácter que se quita antes de teclear, no |
 | Un redactor aparte, sin herramientas ni memoria | Darle la captura a Nova | Un mensaje en pantalla que intente darle órdenes solo puede cambiar el texto, que tú revisas |
+| InsightFace dentro de la Mac, sin su paquete de Python | Pedirle a Claude que identifique caras | Claude no identifica personas por su cara, y así la huella no sale del equipo |
 | Observaciones con valores fijos, contadas por código | Guardar fotos o dejar que el modelo resuma | Sin fotos en disco, sin datos de cuerpo o salud, y sin costumbres inventadas |
 
 ## Cifras para contar
@@ -84,6 +86,9 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 - **Una pestaña cerrada tumbaba el turno:** avisar a una conexión muerta rompía la conversación.
 - **"Olvidar" dejaba rastro:** el texto seguía en el registro de sincronización.
 - **La primera migración perdió recuerdos:** la comprobación por huellas lo detectó antes de usarla.
+- **Decía mi nombre a cada rato.** En una plática de 20 respuestas lo dijo 16 veces. Con reglas de estilo explícitas bajó a 0, sin perder la calidez.
+- **El botón que la dejaba sorda.** El micrófono se apagaba y Nova, oculta, no daba ninguna señal; ese botón se fue a la barra de menú.
+- **Se quedaba "sorda" al llamarla.** Sí oía y respondía, pero sin sonido: al abrir con el micrófono ya encendido, nunca se preparaba la salida de audio. La lección: probar también la segunda apertura.
 
 ## Cómo seguir la documentación
 Cada cambio que se sube a `main` debe actualizar `CHANGELOG.md` y, si cambia la historia, esta

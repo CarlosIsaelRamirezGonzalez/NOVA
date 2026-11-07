@@ -42,8 +42,12 @@ class PhotoBudgetService:
         self.last_photo_at: float | None = None
         self.usage = self._load()
 
-    def check(self) -> PhotoStatus:
+    def check(self, ignore_cooldown: bool = False) -> PhotoStatus:
         """Comprueba si se puede tomar una foto ahora.
+
+        Args:
+            ignore_cooldown: Si no hace falta esperar, como en las fotos seguidas para aprender su
+                cara; el límite del día sigue contando.
 
         Returns:
             `granted` si se puede, o el motivo por el que no.
@@ -53,7 +57,8 @@ class PhotoBudgetService:
             return "daily_limit"
 
         is_cooling_down = (
-            self.last_photo_at is not None
+            not ignore_cooldown
+            and self.last_photo_at is not None
             and self.clock() - self.last_photo_at < self.cooldown_seconds
         )
         return "cooldown" if is_cooling_down else "granted"

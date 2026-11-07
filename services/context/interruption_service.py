@@ -1,6 +1,6 @@
 """Cuenta las interrupciones recientes y calcula su efecto en Nova.
 
-Nova está para Carlos: que la interrumpa no la enoja, apenas la toma por sorpresa. Se calcula en
+Nova está para mí: que la interrumpa no la enoja, apenas la toma por sorpresa. Se calcula en
 código para que la reacción sea fiable y no dependa de lo que elija el modelo.
 """
 
@@ -53,7 +53,7 @@ class InterruptionService:
         )
 
     def clear(self) -> None:
-        """Olvida las interrupciones, por ejemplo cuando Carlos la calma."""
+        """Olvida las interrupciones, por ejemplo cuando la calmo."""
         self.moments = []
 
     def describe(self) -> str | None:

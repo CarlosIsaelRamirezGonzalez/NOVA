@@ -177,7 +177,7 @@ class MemoryService:
         """Busca lo que Nova debería tener presente para este mensaje.
 
         Args:
-            query: Mensaje de Carlos.
+            query: Mi mensaje.
 
         Returns:
             La nota para el modelo, o `None` si no recuerda nada relevante.
@@ -252,10 +252,10 @@ class MemoryService:
         return forgotten
 
     async def forget_from_request(self, user_input: str) -> list[Memory]:
-        """Interpreta lo que Carlos quiere olvidar y lo borra.
+        """Interpreta lo que quiero olvidar y lo borra.
 
         Args:
-            user_input: Mensaje con el que lo pidió.
+            user_input: Mensaje con el que lo pedí.
 
         Returns:
             Los recuerdos borrados.
@@ -299,7 +299,7 @@ class MemoryService:
         """Construye la petición para interpretar qué hay que olvidar.
 
         Args:
-            user_input: Mensaje con el que Carlos lo pidió.
+            user_input: Mensaje con el que lo pedí.
 
         Returns:
             La petición lista para enviarse.
@@ -349,7 +349,7 @@ class MemoryService:
         """Lanza la extracción de recuerdos sin retrasar la respuesta.
 
         Args:
-            user_input: Mensaje de Carlos.
+            user_input: Mi mensaje.
             reply: Respuesta de Nova.
         """
         # Se conserva la referencia a la tarea para que no se pierda antes de terminar.
@@ -417,7 +417,7 @@ class MemoryService:
         Un fallo aquí no debe afectar la conversación, solo se pierde ese recuerdo.
 
         Args:
-            user_input: Mensaje de Carlos.
+            user_input: Mi mensaje.
             reply: Respuesta de Nova.
         """
         # Una a la vez, para que dos extracciones seguidas no dupliquen el mismo recuerdo.
@@ -441,7 +441,7 @@ class MemoryService:
         """Construye la petición para el modelo extractor.
 
         Args:
-            user_input: Mensaje de Carlos.
+            user_input: Mi mensaje.
             reply: Respuesta de Nova.
             existing: Recuerdos parecidos, para no duplicarlos.
 

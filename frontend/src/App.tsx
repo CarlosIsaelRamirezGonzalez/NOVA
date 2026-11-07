@@ -131,6 +131,7 @@ export default function App() {
     visualProfile,
     requestVisualProfile,
     forgetVisual,
+    forgetFace,
     listenEnabled,
     listenState,
     toggleListening,
@@ -171,7 +172,10 @@ export default function App() {
     listenState === 'error'
       ? 'No pude abrir el micrófono. Revisa Ajustes del Sistema > Privacidad y seguridad > Micrófono.'
       : null
-  const notice = error ?? listenError ?? dictation.micError ?? camera.cameraError
+  // Flotando no hay botón de micrófono: si se apagó, se avisa, porque oculta parecería sorda.
+  const micOffNotice =
+    IS_WIDGET && connected && !listenEnabled ? 'Micrófono apagado. Enciéndelo desde el icono de la barra de menú.' : null
+  const notice = error ?? listenError ?? dictation.micError ?? camera.cameraError ?? micOffNotice
 
   // Flotando, solo se ve si la llamaste: oculta sigue oyendo, y un aviso solo se asoma unos segundos.
   const presence = useWidgetPresence(
@@ -201,13 +205,31 @@ export default function App() {
   useEffect(() => {
     if (!IS_WIDGET || micStarted.current) return
     micStarted.current = true
+    // Aquí nadie hace clic antes de que hable: sin esto, con el micrófono ya encendido se quedaba muda.
+    unlockAudio()
     if (!listenEnabled) {
       void toggleListening()
       return
     }
     const bridge = (window as unknown as { novaDesktop?: { requestMicrophone: () => Promise<boolean> } }).novaDesktop
     void bridge?.requestMicrophone()
-  }, [listenEnabled, toggleListening])
+  }, [listenEnabled, toggleListening, unlockAudio])
+
+  // El micrófono de la ventana flotante se controla desde la barra de menú.
+  useEffect(() => {
+    if (!IS_WIDGET) return
+    const bridge = (window as unknown as {
+      novaDesktop?: { reportMicrophone: (enabled: boolean) => void }
+    }).novaDesktop
+    bridge?.reportMicrophone(listenEnabled)
+  }, [listenEnabled])
+  useEffect(() => {
+    if (!IS_WIDGET) return
+    const bridge = (window as unknown as {
+      novaDesktop?: { onMicrophoneCommand: (handler: () => void) => () => void }
+    }).novaDesktop
+    return bridge?.onMicrophoneCommand(() => void toggleListening())
+  }, [toggleListening])
 
   // En la ventana flotante, el fondo es transparente para que Nova flote sobre el escritorio.
   useEffect(() => {
@@ -305,7 +327,6 @@ export default function App() {
         )}
         {/* Solo se ve Nova: los botones aparecen al pasar el cursor o al navegar con el teclado */}
         <div className="absolute bottom-2 flex flex-wrap items-center justify-center gap-1 rounded-full bg-night/80 p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          {listenButton}
           {busy && (
             <button
               type="button"
@@ -447,7 +468,7 @@ export default function App() {
 
       {/* Lo que ha notado de cómo te ves, a pantalla completa */}
       {visualOpen && (
-        <VisualView profile={visualProfile} onForget={forgetVisual} onClose={() => setVisualOpen(false)} />
+        <VisualView profile={visualProfile} onForget={forgetVisual} onForgetFace={forgetFace} onClose={() => setVisualOpen(false)} />
       )}
 
       {/* Vista previa en espejo: muestra lo que puede ver Nova */}

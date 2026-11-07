@@ -4,6 +4,7 @@ import asyncio
 import random
 import re
 import time
+import traceback
 from collections.abc import Awaitable, Callable
 from contextlib import aclosing
 from datetime import datetime
@@ -13,6 +14,7 @@ from aiohttp import ClientSession
 from services.agents.llms_service import (
     CAMERA_TOOL_NAME,
     FORGET_TOOL_NAME,
+    LEARN_FACE_TOOL_NAME,
     MOVE_TOOL_NAME,
     SEARCH_TOOL_NAME,
     WRITE_TOOL_NAME,
@@ -26,6 +28,7 @@ from services.context.conversation_service import ConversationService
 from services.context.emotional_state_service import EmotionalStateService
 from services.context.interruption_service import InterruptionService
 from services.context.memory_service import MemoryService
+from services.context.face_identity_service import FaceIdentityService
 from services.context.memory_store import MemoryStore
 from services.context.visual_memory_service import VisualMemoryService
 from services.schemas import (
@@ -44,6 +47,7 @@ from services.schemas import (
     StreamedReply,
     TextPart,
     EmptyArguments,
+    FaceCheck,
     SearchArguments,
     SearchDoneEvent,
     SearchStartEvent,
@@ -81,10 +85,12 @@ TURN_REMINDER = (
     "you can't send anything, he does that himself. If he asks you to move, get out of the way, "
     "stay still, walk around, or disappear from his screen, use the move_on_screen tool: you really "
     "float over his desktop.\n\n"
-    "Let him feel you in this reply: react first, with real warmth, humor, excitement, or worry, "
-    "in your own words, the way someone who loves working with him would. Don't report facts in a "
-    "flat tone. Your emotion tag should reflect that honestly, and curiosity should not be your "
-    "default. Use a voice tag such as [laughs], [sighs], or [excited] when it fits."
+    "Sound like a person talking, not performing. Let your feeling show in your words and tone, the "
+    "way someone who loves working with him would, without announcing it. Don't say his name in this "
+    "reply; the only exceptions are a serious or tender moment. Use at most one voice tag such as "
+    "[laughs], [sighs], or [excited], only when it is real; many replies need none, and you laugh "
+    "only at what is actually funny. Your emotion tag should still reflect what you feel honestly, "
+    "and curiosity should not be your default."
 )
 # Nova avisa con su voz, porque la búsqueda tarda unos segundos y no debe parecer que se trabó.
 SEARCH_PHRASES = ("Déjame buscarlo.", "A ver, lo busco.", "Dame un momento, lo checo.", "Ahorita lo busco.")
@@ -109,7 +115,7 @@ FORGET_TOOL = ToolDefinition(
     ),
     parameters=EmptyArguments.model_json_schema(),
 )
-# Con una etiqueta, Claude a veces contestaba sin mirar, aunque Carlos se lo pidiera varias veces.
+# Con una etiqueta, Claude a veces contestaba sin mirar, aunque se lo pidiera varias veces.
 CAMERA_TOOL = ToolDefinition(
     name=CAMERA_TOOL_NAME,
     description=(
@@ -121,7 +127,7 @@ CAMERA_TOOL = ToolDefinition(
     ),
     parameters=EmptyArguments.model_json_schema(),
 )
-# Solo se ofrece si Carlos pide algo así en este mensaje. Lo que venga de una página o de una
+# Solo se ofrece si pido algo así en este mensaje. Lo que venga de una página o de una
 # conversación vieja no debe poder ponerla a teclear.
 WRITE_REQUEST = re.compile(
     r"\b(escr[ií]b|redact|termin|acab|complet|contest|respond|p[oó]n|manda|dile|mensaje|correo)",
@@ -213,16 +219,87 @@ WRITE_NOTES: tuple[tuple[WriteStatus, str], ...] = (
         "wrote anything.",
     ),
 )
-# Sin la cámara encendida, solo puede tomar la foto si Carlos pide algo así en este mensaje.
+# Sin la cámara encendida, solo puede tomar la foto si pido algo así en este mensaje.
 LOOK_REQUEST = re.compile(
-    r"\b(m[ií]r|ve\b|ves\b|ver\b|v[eé]me|veo|checa|observ|f[ií]jate|foto|c[aá]mara|ense[nñ]|muestr"
+    r"\b(m[ií]r|ve\b|ves\b|ver\b|v[eé]me|veo|checa|observ|f[ií]jate|foto|c[aá]mara|ense[nñ]|muestr|present"
     r"|c[oó]mo (?:vengo|ando|voy))",
     re.IGNORECASE,
 )
-# Si pide olvidar esto, se borra lo que Nova ha notado de cómo se ve.
+# Estas no se dejan a criterio del modelo: con "Mira." a veces contestaba sin ver, y al presentarle a
+# alguien saludaba sin mirar. Se reconocen aquí, y primero se toma la foto.
+WAKE_PREFIX = re.compile(r"^\W*(?:(?:oye|hey)\s+)?(?:nova\b)?[\s,.:;!¡¿-]*", re.IGNORECASE)
+DIRECT_LOOK = re.compile(
+    r"^(?:voltea a ver|ven a ver|ve esto|ves esto|checa esto|qu[eé] ves"
+    r"|m[ií]ra (?:esto|eso|aqu[ií]|ac[aá]|qui[eé]n|lo que))\b",
+    re.IGNORECASE,
+)
+# "Mira, hoy me fue bien" es hablar, no pedirle que vea: tras "mira" solo vale una frase corta.
+LOOK_MAX_WORDS = 6
+LOOK_ONLY_WORD = re.compile(r"^m[ií]ra(?:me|le)?[\s.!?¡¿]*$", re.IGNORECASE)
+INTRODUCTION = re.compile(
+    r"\b(te presento|te (?:quiero|voy a) presentar|quiero que conozcas|conoce a|sal[uú]da(?:l[oa]|me a| a))\b"
+    r"|^(?:[eé]l|ella|este|esta|ese|esa|estos|estas) (?:es|son) (?:mi|mis) "
+    r"(?:mam|pap|herman|prim|t[ií][oa]|amig|novi|espos|hij|abuel|compa|jef|sobrin|cu[nñ]ad|suegr|vecin)",
+    re.IGNORECASE,
+)
+INTRODUCTION_NOTE = (
+    "He is introducing you to someone in this photo. Greet them warmly using the name he gave. If he "
+    "gave no name, or you can't tell who is who among several people, ask. Don't describe their body "
+    "or looks unless he asks."
+)
+
+
+def wants_to_look(text: str) -> bool:
+    """Decide si pedí directamente que Nova mire, sin esperar lo que opine el modelo.
+
+    Args:
+        text: Mensaje, posiblemente con su nombre al inicio.
+
+    Returns:
+        Si hay que tomar la foto de inmediato.
+    """
+    message = WAKE_PREFIX.sub("", text, count=1).strip()
+    if INTRODUCTION.search(message) or LOOK_ONLY_WORD.match(message):
+        return True
+    is_short = len(message.split()) <= LOOK_MAX_WORDS and "," not in message
+    return is_short and bool(DIRECT_LOOK.match(message.lstrip("¿¡")))
+
+
+# Si pido olvidar esto, se borra lo que Nova ha notado de cómo me veo.
 VISUAL_FORGET = re.compile(
     r"(c[oó]mo me (?:visto|veo)|c[oó]mo (?:ando|vengo)|mi ropa|mi aspecto|mi cara|memoria visual)",
     re.IGNORECASE,
+)
+# Aprender mi cara solo se ofrece si lo pido con esas palabras en este mensaje.
+FACE_REQUEST = re.compile(
+    r"(apr[eé]nd\w*|recuerd\w*|memoriz\w*|gu[aá]rd\w*|recon[oó]c\w*)\b.*\bmi (cara|rostro)\b|recon[oó]ceme"
+    r"|\bmi (cara|rostro)\b.*\b(apr[eé]nd\w*|recuerd\w*|memoriz\w*|gu[aá]rd\w*)",
+    re.IGNORECASE,
+)
+FACE_FORGET = re.compile(r"\b(mi cara|mi rostro)\b", re.IGNORECASE)
+LEARN_FACE_TOOL = ToolDefinition(
+    name=LEARN_FACE_TOOL_NAME,
+    description=(
+        "Learn Carlos's face, so you can recognize him in the photos he asks for. Call this only when "
+        "he asks you to learn or remember his own face. It takes three quick photos, and his face is "
+        "stored only on this computer. It can't learn anyone else's face."
+    ),
+    parameters=EmptyArguments.model_json_schema(),
+)
+LEARN_FACE_PHOTOS = 3
+LEARN_FACE_SECONDS_BETWEEN = 0.8
+LEARN_FACE_PHRASE = "Va, mírame tantito. "
+FACE_NOTES: tuple[tuple[str, str], ...] = (
+    ("learned", "You learned his face from {photos} photos. Tell him in one short line, and that it stays on this computer."),
+    ("many_faces", "You didn't learn his face: someone else was in the photos. Ask him to try again alone."),
+    ("no_clear_face", "You didn't learn his face: you couldn't see it clearly. Ask him to face the camera with good light and try again."),
+    ("no_camera", "You didn't learn his face: the camera didn't work. Tell him in one short line."),
+    ("unavailable", "You can't learn faces yet because the model isn't installed. Tell him in one short line."),
+)
+FACE_SEEN_NOTE = "A local face check recognized Carlos in this photo. Treat that as likely, not as certain."
+FACE_NOT_SEEN_NOTE = (
+    "A local face check did not recognize Carlos among the {count} face(s) in this photo. Don't assume "
+    "it's him: ask who it is if it matters."
 )
 LOOK_PHRASE = "A ver... "
 # La voz es lo que más cuesta. Lo largo y el código se quedan por escrito, en la pantalla.
@@ -249,7 +326,7 @@ CALMED_NOTE = (
 TokenHandler = Callable[[str], Awaitable[None]]
 AudioHandler = Callable[[bytes], Awaitable[None]]
 EmotionHandler = Callable[[EmotionBlend], Awaitable[None]]
-PhotoProvider = Callable[[], Awaitable[PhotoResult]]
+PhotoProvider = Callable[..., Awaitable[PhotoResult]]
 SearchHandler = Callable[
     [SearchStartEvent | SearchDoneEvent | WriteStartEvent | WriteDoneEvent | MoveEvent],
     Awaitable[None],
@@ -344,7 +421,7 @@ GESTURES: tuple[tuple[Gesture, str, tuple[EmotionComponent, ...], str], ...] = (
     (
         "middle_finger",
         "Carlos just flipped you off with his middle finger at the camera, without saying a word.",
-        # Le hace gracia más de lo que le molesta: está para Carlos, y la cámara también se equivoca.
+        # Le hace gracia más de lo que le molesta: está para mí, y la cámara también se equivoca.
         (EmotionComponent(name="surprised", intensity=0.3),),
         "(Le enseñaste el dedo de en medio)",
     ),
@@ -364,7 +441,7 @@ def gesture_message(gesture: Gesture) -> str:
         gesture: Gesto detectado.
 
     Returns:
-        La descripción, entre corchetes para distinguirla de lo que Carlos escribe.
+        La descripción, entre corchetes para distinguirla de lo que yo escribo.
     """
     description = next(text for name, text, _, _ in GESTURES if name == gesture)
     return (
@@ -498,6 +575,7 @@ class AgentManager:
         self.web_search: WebSearchService | None = None
         self.writer: DesktopWriter | None = None
         self.visual: VisualMemoryService | None = None
+        self.faces: FaceIdentityService | None = None
 
     def calm(self) -> None:
         """Calma a Nova y se lo hace saber al modelo.
@@ -597,16 +675,30 @@ class AgentManager:
             request.tools.append(CAMERA_TOOL)
         if self.web_search:
             request.tools.append(WEB_SEARCH_TOOL)
-        # Los gestos llegan entre corchetes: no son algo que Carlos haya pedido.
+        # Los gestos llegan entre corchetes: no son algo que yo haya pedido.
         can_write = bool(
             self.writer and not user_input.startswith("[") and WRITE_REQUEST.search(user_input)
         )
         if can_write:
             request.tools.append(WRITE_TOOL)
+        can_learn_face = bool(self.faces and FACE_REQUEST.search(user_input))
+        if can_learn_face:
+            request.tools.append(LEARN_FACE_TOOL)
         speech = SpeechPipeline(session, self.tts, on_audio)
 
         try:
-            reply = await self._stream_reply(request, speech, on_token, on_emotion, True, can_write)
+            # Si pido que mire, no se le pregunta al modelo: se toma la foto y luego responde.
+            must_look = not user_input.startswith("[") and wants_to_look(user_input)
+            is_introduction = must_look and bool(
+                INTRODUCTION.search(WAKE_PREFIX.sub("", user_input, count=1).strip())
+            )
+            reply = (
+                StreamedReply(photo_requested=True)
+                if must_look
+                else await self._stream_reply(
+                    request, speech, on_token, on_emotion, True, can_write, can_learn_face
+                )
+            )
             first_reply: StreamedReply | None = None
             followup_note = ""
 
@@ -630,21 +722,42 @@ class AgentManager:
                 await speech.finish()
                 return ""
 
+            # Si pedí que aprenda mi cara, toma las fotos ahí mismo y confirma cómo le fue.
+            if reply.learn_face_requested:
+                first_reply = reply
+                if not strip_tags(first_reply.raw_text):
+                    await on_token(LEARN_FACE_PHRASE)
+                    speech.enqueue(LEARN_FACE_PHRASE)
+                followup_note = await self._learn_face(request_photo)
+                extra_messages = [
+                    ChatMessage(role="assistant", content=first_reply.raw_text),
+                    ChatMessage(role="system", content=followup_note),
+                ]
+                request = self.conversation.build_request(self.model, context, extra_messages)
+                reply = await self._stream_reply(request, speech, on_token, on_emotion, False)
+
             # Si pidió la foto, el modelo responde de nuevo ya viendo la imagen o sabiendo por qué no.
-            if reply.photo_requested:
+            elif reply.photo_requested:
                 first_reply = reply
                 # Si no dijo nada antes de mirar, avisa con unas palabras para no quedarse callada.
                 if not strip_tags(first_reply.raw_text):
                     await on_token(LOOK_PHRASE)
                     speech.enqueue(LOOK_PHRASE)
-                photo = await request_photo()
-                # Los gestos llegan entre corchetes: esas fotos no las pidió él.
+                # Pedida a propósito no espera: así se puede presentar a varias personas seguidas.
+                photo = await request_photo(must_look)
+                face = await self._check_face(photo)
+                # Los gestos llegan entre corchetes: esas fotos no las pedí yo.
                 if self.visual and photo.data_url and not user_input.startswith("["):
-                    self.visual.observe_later(photo.data_url, user_input)
+                    self.visual.observe_later(photo.data_url, user_input, face)
                 extra_messages = [
                     ChatMessage(role="assistant", content=first_reply.raw_text),
-                    self._photo_message(photo),
+                    self._photo_message(photo, face),
                 ]
+                # Sin frase previa no se manda un mensaje vacío: la API exige que tengan texto.
+                if not first_reply.raw_text:
+                    extra_messages.pop(0)
+                if is_introduction and photo.data_url:
+                    extra_messages.append(ChatMessage(role="system", content=INTRODUCTION_NOTE))
                 request = self.conversation.build_request(self.model, context, extra_messages)
                 reply = await self._stream_reply(
                     request, speech, on_token, on_emotion, False
@@ -707,7 +820,8 @@ class AgentManager:
 
         # El historial conserva las etiquetas, para que el modelo las siga usando, pero nunca la foto.
         if first_reply is not None:
-            self.conversation.add_assistant_message(first_reply.raw_text)
+            if first_reply.raw_text:
+                self.conversation.add_assistant_message(first_reply.raw_text)
             if followup_note:
                 self.conversation.add_system_note(followup_note)
         self.conversation.add_assistant_message(reply.raw_text)
@@ -722,6 +836,7 @@ class AgentManager:
         on_emotion: EmotionHandler,
         tools_allowed: bool,
         can_write: bool = False,
+        can_learn_face: bool = False,
     ) -> StreamedReply:
         """Hace una llamada al modelo y entrega lo que va llegando.
 
@@ -731,7 +846,8 @@ class AgentManager:
             on_token: Recibe cada fragmento de texto limpio.
             on_emotion: Recibe el estado emocional cada vez que Nova reacciona.
             tools_allowed: Si Nova todavía puede pedir una foto o una búsqueda en este turno.
-            can_write: Si Carlos pidió en este mensaje que escriba algo; sin esto se ignora la etiqueta.
+            can_write: Si pedí en este mensaje que escriba algo; sin esto se ignora la etiqueta.
+            can_learn_face: Si pedí en este mensaje que aprenda mi cara.
 
         Returns:
             La respuesta completa y si Nova pidió una foto.
@@ -762,6 +878,9 @@ class AgentManager:
                 if filtered.search_query and tools_allowed:
                     reply.search_query = filtered.search_query
                     break
+                if filtered.learn_face_requested and tools_allowed and can_learn_face:
+                    reply.learn_face_requested = True
+                    break
                 if filtered.write_instructions and tools_allowed and can_write:
                     reply.write_instructions = filtered.write_instructions
                     break
@@ -782,12 +901,12 @@ class AgentManager:
         on_token: TokenHandler,
         on_emotion: EmotionHandler,
     ) -> None:
-        """Borra lo que Carlos pidió olvidar y hace que Nova lo confirme.
+        """Borra lo que pedí olvidar y hace que Nova lo confirme.
 
         Este turno no se guarda: su propio mensaje podría contener lo que quiere olvidar.
 
         Args:
-            user_input: Mensaje con el que Carlos lo pidió.
+            user_input: Mensaje con el que lo pedí.
             reply: Lo que Nova alcanzó a decir antes de la etiqueta.
             context: Notas de sistema de este turno.
             speech: Cola de audio del turno.
@@ -798,6 +917,9 @@ class AgentManager:
         visual_erased = 0
         if self.visual and VISUAL_FORGET.search(user_input):
             visual_erased = self.store.delete_visual_observations()
+        # Mi cara no se borra con otra frase: solo si la menciono.
+        if self.faces and FACE_FORGET.search(user_input) and self.faces.forget():
+            visual_erased += 1
         self.conversation.discard_last_user_message()
         self.conversation.reload()
 
@@ -850,7 +972,7 @@ class AgentManager:
         """Escribe en la app al frente y avisa a la interfaz, que muestra a Nova tecleando.
 
         Args:
-            instructions: Qué pidió Carlos que se escribiera.
+            instructions: Qué pedí que se escribiera.
             on_write: Recibe el inicio y el final.
 
         Returns:
@@ -898,15 +1020,15 @@ class AgentManager:
         """Pide formar recuerdos de este turno, en segundo plano.
 
         Args:
-            user_input: Mensaje de Carlos.
+            user_input: Mi mensaje.
             reply: Respuesta de Nova, posiblemente interrumpida.
         """
-        # Los gestos llegan entre corchetes: no son algo que Carlos haya dicho.
+        # Los gestos llegan entre corchetes: no son algo que yo haya dicho.
         if self.memory and not user_input.startswith("["):
             self.memory.remember_later(user_input, strip_tags(reply))
 
     def _time_context(self) -> str:
-        """Redacta la hora actual y cuánto pasó desde el último mensaje de Carlos.
+        """Redacta la hora actual y cuánto pasó desde mi último mensaje.
 
         Returns:
             La nota para el modelo.
@@ -914,9 +1036,12 @@ class AgentManager:
         now = datetime.now().astimezone().strftime("%A, %Y-%m-%d %H:%M")
         last = self.store.last_user_message_at() if self.store else None
         if last is None:
-            return f"Current local date and time: {now}."
+            return f"Current local date and time, for your reference only: {now}."
         elapsed = describe_elapsed(time.time() - last)
-        return f"Current local date and time: {now}. Carlos last wrote to you {elapsed} ago."
+        return (
+            f"Current local date and time, for your reference only: {now}. Carlos last wrote to you "
+            f"{elapsed} ago. Mention the day, the time, or the gap only if it matters to what he said."
+        )
 
     def _save_interrupted_turn(self) -> None:
         """Guarda en el historial lo que Nova alcanzó a decir antes de que la cortaran."""
@@ -925,12 +1050,64 @@ class AgentManager:
             self.conversation.add_assistant_message(self.partial_reply)
         self.conversation.add_system_note(INTERRUPTED_NOTE)
 
+    async def _check_face(self, photo: PhotoResult) -> FaceCheck | None:
+        """Me busca en una foto, en otro hilo para no trabar a Nova.
+
+        Un fallo aquí no debe arruinar la respuesta: simplemente no se sabe quién es.
+
+        Args:
+            photo: Resultado de la cámara.
+
+        Returns:
+            A quién reconoció, o `None` si no aplica.
+        """
+        if not self.faces or not photo.data_url:
+            return None
+        try:
+            return await asyncio.to_thread(self.faces.check, photo.data_url)
+        except Exception:
+            traceback.print_exc()
+            return None
+
+    async def _learn_face(self, request_photo: PhotoProvider) -> str:
+        """Toma varias fotos seguidas y aprende mi cara.
+
+        Args:
+            request_photo: Toma una foto.
+
+        Returns:
+            La nota para que Nova le cuente cómo le fue; nunca incluye la huella.
+        """
+        photos: list[str] = []
+        if self.faces.is_available:
+            for index in range(LEARN_FACE_PHOTOS):
+                if index:
+                    await asyncio.sleep(LEARN_FACE_SECONDS_BETWEEN)
+                photo = await request_photo(True)
+                if photo.data_url:
+                    photos.append(photo.data_url)
+        status = "unavailable"
+        used = 0
+        if self.faces.is_available and not photos:
+            status = "no_camera"
+        elif photos:
+            try:
+                result = await asyncio.to_thread(self.faces.enroll, photos)
+                status, used = result.status, result.photos_used
+            except Exception:
+                traceback.print_exc()
+                status = "no_clear_face"
+        print(f"[Face] enrollment: {status}", flush=True)
+        note = next(text for name, text in FACE_NOTES if name == status)
+        return note.format(photos=used)
+
     @staticmethod
-    def _photo_message(photo: PhotoResult) -> ChatMessage:
+    def _photo_message(photo: PhotoResult, face: FaceCheck | None = None) -> ChatMessage:
         """Convierte el resultado de la cámara en un mensaje para el modelo.
 
         Args:
             photo: Resultado de intentar tomar la foto.
+            face: A quién reconoció en ella, si ya conoce mi cara.
 
         Returns:
             La imagen adjunta, o una nota de sistema con el motivo por el que no hay foto.
@@ -938,10 +1115,16 @@ class AgentManager:
         if photo.data_url is None:
             return ChatMessage(role="system", content=photo_note(photo.status))
 
+        face_note = ""
+        if face and face.carlos_present:
+            face_note = FACE_SEEN_NOTE
+        elif face and face.face_count:
+            face_note = FACE_NOT_SEEN_NOTE.format(count=face.face_count)
+
         return ChatMessage(
             role="user",
             content=[
-                TextPart(text=PHOTO_CAPTION),
+                TextPart(text=" ".join(part for part in (PHOTO_CAPTION, face_note) if part)),
                 ImagePart(image_url=ImageUrl(url=photo.data_url)),
             ],
         )

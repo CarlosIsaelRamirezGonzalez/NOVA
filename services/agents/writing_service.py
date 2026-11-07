@@ -1,4 +1,4 @@
-"""Escribe en la app que Carlos tiene al frente, sin enviar nunca nada."""
+"""Escribe en la app que tengo al frente, sin enviar nunca nada."""
 
 import asyncio
 import threading
@@ -127,7 +127,7 @@ def text_after_draft(text: str, existing_draft: str) -> str:
 
 
 class DesktopWriter:
-    """Mira la ventana al frente, redacta y teclea, solo cuando Carlos lo pide."""
+    """Mira la ventana al frente, redacta y teclea, solo cuando se lo pido."""
 
     def __init__(self, llm: LLMService, model: str) -> None:
         """Guarda el cliente del modelo.
@@ -146,7 +146,7 @@ class DesktopWriter:
         y ni ella ni el texto redactado entran al historial o a los recuerdos.
 
         Args:
-            instructions: Qué pidió Carlos que se escribiera.
+            instructions: Qué pedí que se escribiera.
 
         Returns:
             Cómo terminó y en qué app.
@@ -196,7 +196,7 @@ class DesktopWriter:
         """Pide el texto al modelo.
 
         Args:
-            instructions: Qué pidió Carlos.
+            instructions: Qué pedí.
             image: Captura de la ventana.
 
         Returns:

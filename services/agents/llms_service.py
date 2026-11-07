@@ -25,6 +25,7 @@ FORGET_TOOL_NAME = "forget_memory"
 CAMERA_TOOL_NAME = "look_through_camera"
 WRITE_TOOL_NAME = "write_in_front_app"
 MOVE_TOOL_NAME = "move_on_screen"
+LEARN_FACE_TOOL_NAME = "learn_my_face"
 # En una conversación en vivo importa empezar a hablar pronto: razonar costaba varios segundos.
 NO_THINKING = {"type": "disabled"}
 EFFORT = "low"
@@ -34,7 +35,7 @@ CONTINUATION_NOTE = "(La conversación continúa desde antes.)"
 
 
 def _note(text: str) -> str:
-    """Marca un texto como nota de la aplicación, para distinguirlo de lo que dice Carlos.
+    """Marca un texto como nota de la aplicación, para distinguirlo de lo que digo yo.
 
     Args:
         text: Contenido de la nota.
@@ -188,7 +189,7 @@ class LLMService:
         tool_name = ""
         tool_arguments = ""
         async with self.client.messages.stream(**_api_params(request)) as stream:
-            # Se registra aunque Carlos la interrumpa: lo ya generado también se cobra.
+            # Se registra aunque yo la interrumpa: lo ya generado también se cobra.
             try:
                 async for event in stream:
                     if event.type == "content_block_start" and event.content_block.type == "tool_use":
@@ -214,6 +215,8 @@ class LLMService:
             yield "[[photo]]"
         elif tool_name == SEARCH_TOOL_NAME:
             yield self._search_tag(tool_arguments)
+        elif tool_name == LEARN_FACE_TOOL_NAME:
+            yield "[[learn_face]]"
         elif tool_name == MOVE_TOOL_NAME:
             yield self._move_tag(tool_arguments)
         elif tool_name == WRITE_TOOL_NAME:

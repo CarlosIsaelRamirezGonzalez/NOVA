@@ -303,7 +303,7 @@ class MemoryStore:
 
     @_serialized
     def last_user_message_at(self) -> float | None:
-        """Busca cuándo escribió Carlos por última vez.
+        """Busca cuándo escribí por última vez.
 
         Returns:
             El momento en segundos, o `None` si nunca ha escrito.

@@ -8,6 +8,12 @@ contextBridge.exposeInMainWorld('novaDesktop', {
   startDrag: (screenX, screenY) => ipcRenderer.send('drag-start', screenX, screenY),
   moveDrag: (screenX, screenY) => ipcRenderer.send('drag-move', screenX, screenY),
   endDrag: () => ipcRenderer.send('drag-end'),
+  reportMicrophone: (enabled) => ipcRenderer.send('microphone-state', enabled),
+  onMicrophoneCommand: (handler) => {
+    const listener = () => handler()
+    ipcRenderer.on('microphone-command', listener)
+    return () => ipcRenderer.removeListener('microphone-command', listener)
+  },
   moveTo: (place) => ipcRenderer.send('move-to', place),
   pauseWander: (reason, paused) => ipcRenderer.send('pause-wander', reason, paused),
   onPose: (handler) => {

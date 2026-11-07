@@ -1,4 +1,4 @@
-"""Escucha cuando llaman a Nova con el micrófono y transcribe lo que Carlos pide, todo dentro del equipo.
+"""Escucha cuando llaman a Nova con el micrófono y transcribe lo que pido, todo dentro del equipo.
 
 El audio nunca sale de la computadora ni se guarda: solo el texto transcrito llega al modelo.
 """
@@ -32,7 +32,7 @@ MIN_WORD_CONFIDENCE = 0.5
 MIN_NAME_CONFIDENCE = 0.5
 MAX_GAP_BETWEEN_WORDS_SECONDS = 0.35
 
-# Cuándo se da por terminado lo que Carlos dice.
+# Cuándo se da por terminado lo que digo.
 END_SILENCE_SECONDS = 1.0
 NO_SPEECH_TIMEOUT_SECONDS = 6.0
 # Después de que Nova responde, se puede seguir hablando sin volver a llamarla.
@@ -235,7 +235,7 @@ class ListeningService:
         if wake_end is None:
             return
 
-        # Si dijo la petición de corrido, se transcribe todo: recortar por tiempo se comía palabras.
+        # Si dije la petición de corrido, se transcribe todo: recortar por tiempo se comía palabras.
         command = heard[int(wake_end * BYTES_PER_SECOND) & ~1 :]
         if self._has_speech(command):
             self._finish_command(heard, includes_wake_phrase=True)
@@ -299,7 +299,7 @@ class ListeningService:
         return voiced * block / BYTES_PER_SECOND >= MIN_COMMAND_SECONDS
 
     def _hear_command(self, pcm: bytes) -> None:
-        """Graba la petición hasta que Carlos deje de hablar.
+        """Graba la petición hasta que deje de hablar.
 
         Args:
             pcm: Bloque de audio.

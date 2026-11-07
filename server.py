@@ -21,6 +21,7 @@ from services.agents.llms_service import LLMService
 from services.agents.web_search_service import WebSearchService
 from services.agents.writing_service import DesktopWriter
 from services.context.conversation_service import ConversationService
+from services.context.face_identity_service import FaceIdentityService
 from services.context.visual_memory_service import VisualMemoryService
 from services.context.memory_service import MemoryService
 from services.context.memory_store import MemoryStore
@@ -53,7 +54,9 @@ from services.schemas import (
     SearchDoneEvent,
     EmotionComponent,
     GreetingEvent,
+    ForgetFaceRequest,
     ForgetVisualRequest,
+    VisualProfileEvent,
     MoveEvent,
     SearchStartEvent,
     VisualProfileRequest,
@@ -120,6 +123,10 @@ class NovaServer:
         self.agent.web_search = WebSearchService(self.anthropic, self.usage)
         self.agent.writer = DesktopWriter(self.agent.llm, self.agent.model)
         self.agent.visual = VisualMemoryService(self.store, self.agent.llm, self.agent.model)
+        # Queda junto a la base local, pero fuera de ella: esto no se sincroniza con la nube.
+        self.agent.faces = FaceIdentityService(
+            config.models_path / "face", config.active_memory_path.parent / "face_profile.npy"
+        )
         self.memory = MemoryService(
             self.store,
             VectorIndex(config.vector_path, config.models_path),
@@ -238,11 +245,15 @@ class NovaServer:
                     await self._send(socket, self.usage.report(quota))
                     continue
                 if isinstance(client_request, VisualProfileRequest):
-                    await self._send(socket, self.agent.visual.report())
+                    await self._send(socket, self._visual_report())
+                    continue
+                if isinstance(client_request, ForgetFaceRequest):
+                    self.agent.faces.forget()
+                    await self._send(socket, self._visual_report())
                     continue
                 if isinstance(client_request, ForgetVisualRequest):
                     self.store.delete_visual_observations(client_request.observation_id)
-                    await self._send(socket, self.agent.visual.report())
+                    await self._send(socket, self._visual_report())
                     await asyncio.to_thread(self.store.sync, True)
                     continue
                 if isinstance(client_request, ForgetMemoryRequest):
@@ -343,6 +354,16 @@ class NovaServer:
         """
         if self.loop:
             self.loop.call_soon_threadsafe(self._start_voice_turn, text)
+
+    def _visual_report(self) -> VisualProfileEvent:
+        """Junta lo que muestra la vista "Cómo te ve".
+
+        Returns:
+            Las costumbres, las observaciones y si ya aprendió mi cara.
+        """
+        report = self.agent.visual.report()
+        report.face_enrolled = self.agent.faces.is_enrolled
+        return report
 
     def _on_wake(self) -> None:
         """Recibe desde el hilo del micrófono que llamaron a Nova sin pedir nada más."""
@@ -557,17 +578,20 @@ class NovaServer:
         if is_expected and self.pending_photo and not self.pending_photo.done():
             self.pending_photo.set_result(response.data_url)
 
-    async def _request_photo(self, socket: web.WebSocketResponse) -> PhotoResult:
+    async def _request_photo(
+        self, socket: web.WebSocketResponse, ignore_cooldown: bool = False
+    ) -> PhotoResult:
         """Intenta obtener una foto del navegador, respetando los límites de uso.
 
         Args:
             socket: Conexión con el navegador.
+            ignore_cooldown: Si no hace falta la espera entre fotos.
 
         Returns:
             La foto, o el motivo por el que no se obtuvo.
         """
         # Los límites se comprueban aquí, sin importar lo que haya pedido el modelo.
-        status = self.photo_budget.check()
+        status = self.photo_budget.check(ignore_cooldown)
         if status != "granted":
             print(f"[Photo] denied: {status}", flush=True)
             return PhotoResult(status=status)
@@ -626,13 +650,16 @@ class NovaServer:
             print(f"[Emotion] {feelings or 'calm'}", flush=True)
             await self._send(socket, EmotionEvent(components=blend.components))
 
-        async def take_photo() -> PhotoResult:
+        async def take_photo(ignore_cooldown: bool = False) -> PhotoResult:
             """Pide una foto al navegador conectado.
+
+            Args:
+                ignore_cooldown: Si no hace falta la espera entre fotos.
 
             Returns:
                 La foto, o el motivo por el que no se obtuvo.
             """
-            return await self._request_photo(socket)
+            return await self._request_photo(socket, ignore_cooldown)
 
         async def send_search(
             event: SearchStartEvent | SearchDoneEvent | WriteStartEvent | WriteDoneEvent | MoveEvent,

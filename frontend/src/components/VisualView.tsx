@@ -65,6 +65,7 @@ const OBSERVATION_FIELDS: (keyof VisualObservation)[] = [
 type Props = {
   profile: VisualProfile | null
   onForget: (observationId: number | null) => void
+  onForgetFace: () => void
   onClose: () => void
 }
 
@@ -74,7 +75,7 @@ type Props = {
  * @param props - Lo que ha notado y las acciones de borrar y cerrar.
  * @returns La vista a pantalla completa.
  */
-export function VisualView({ profile, onForget, onClose }: Props) {
+export function VisualView({ profile, onForget, onForgetFace, onClose }: Props) {
   // Esc cierra esta vista, en lugar de interrumpir a Nova.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -109,6 +110,26 @@ export function VisualView({ profile, onForget, onClose }: Props) {
             Cerrar
           </button>
         </header>
+
+        <section aria-label="Tu cara" className="flex items-start justify-between gap-4 rounded-lg border border-line p-3">
+          <div className="text-sm">
+            <h2 className="font-pixel text-lg">Tu cara</h2>
+            <p className="text-muted">
+              {profile?.face_enrolled
+                ? 'Te reconoce en las fotos que le pides. La huella se queda solo en esta Mac y nunca se sube a la nube.'
+                : 'Todavía no te reconoce. Dile "Nova, apréndete mi cara" estando solo, de frente y con buena luz.'}
+            </p>
+          </div>
+          {profile?.face_enrolled && (
+            <button
+              type="button"
+              onClick={onForgetFace}
+              className="shrink-0 rounded-full border border-alert px-3 py-1 font-pixel text-sm text-alert outline-none hover:bg-panel focus-visible:border-glow"
+            >
+              Borrar mi cara
+            </button>
+          )}
+        </section>
 
         <section aria-label="Costumbres" className="space-y-2">
           <h2 className="font-pixel text-lg">Costumbres</h2>

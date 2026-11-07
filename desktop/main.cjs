@@ -1,6 +1,6 @@
 /** App de escritorio de Nova: ventana flotante, icono en la barra de menú y servidor local. */
 
-const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, powerMonitor, screen, shell, systemPreferences } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
@@ -409,6 +409,27 @@ function createWidget() {
   void widget.loadURL(`${SERVER_URL}/?widget=1`)
 }
 
+/** Regresa a Nova a la pantalla si la suya ya no está, por ejemplo al desconectar un monitor. */
+function keepOnDisplay() {
+  const [x, y] = widget.getPosition()
+  const center = { x: x + WIDGET_SIZE.width / 2, y: y + WIDGET_SIZE.height / 2 }
+  const { workArea } = screen.getDisplayNearestPoint(center)
+  const limit = (value, low, high) => Math.min(high, Math.max(low, value))
+  widget.setPosition(
+    Math.round(limit(x, workArea.x, workArea.x + workArea.width - WIDGET_SIZE.width)),
+    Math.round(limit(y, workArea.y, workArea.y + workArea.height - WIDGET_SIZE.height)),
+  )
+}
+
+/** Muestra la ventana sin quitar el foco. Reafirma su nivel: al despertar la Mac, macOS puede perderlo. */
+function presentWidget() {
+  keepOnDisplay()
+  widget.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
+  widget.setAlwaysOnTop(true, 'floating')
+  widget.showInactive()
+  widget.moveTop()
+}
+
 /** Enciende o apaga el arranque de Nova al iniciar sesión, con un agente de tu usuario. */
 function setAutostart(enabled) {
   if (!enabled) {
@@ -427,32 +448,46 @@ function setAutostart(enabled) {
   fs.writeFileSync(AUTOSTART_FILE, plist)
 }
 
+/**
+ * Arma el menú de la barra de menú.
+ *
+ * @param {boolean} isMicrophoneOn - Si el micrófono está encendido.
+ * @returns {Menu} El menú.
+ */
+function buildTrayMenu(isMicrophoneOn) {
+  return Menu.buildFromTemplate([
+    {
+      label: 'Mostrar u ocultar a Nova',
+      click: () => {
+        if (!widget) createWidget()
+        else widget.webContents.send('presence-command', 'toggle')
+      },
+    },
+    {
+      label: 'Micrófono encendido',
+      type: 'checkbox',
+      checked: isMicrophoneOn,
+      click: () => widget?.webContents.send('microphone-command'),
+    },
+    { type: 'separator' },
+    {
+      label: 'Abrir al iniciar sesión',
+      type: 'checkbox',
+      checked: fs.existsSync(AUTOSTART_FILE),
+      click: (item) => setAutostart(item.checked),
+    },
+    { type: 'separator' },
+    { label: 'Salir', click: () => app.quit() },
+  ])
+}
+
 /** Crea el icono de la barra de menú con sus opciones. */
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'trayTemplate.png'))
   icon.setTemplateImage(true)
   tray = new Tray(icon)
   tray.setToolTip('Nova')
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: 'Mostrar u ocultar a Nova',
-        click: () => {
-          if (!widget) createWidget()
-          else widget.webContents.send('presence-command', 'toggle')
-        },
-      },
-      { type: 'separator' },
-      {
-        label: 'Abrir al iniciar sesión',
-        type: 'checkbox',
-        checked: fs.existsSync(AUTOSTART_FILE),
-        click: (item) => setAutostart(item.checked),
-      },
-      { type: 'separator' },
-      { label: 'Salir', click: () => app.quit() },
-    ]),
-  )
+  tray.setContextMenu(buildTrayMenu(true))
 }
 
 /**
@@ -526,13 +561,14 @@ if (!app.requestSingleInstanceLock()) {
       moveToCursorDisplay()
       nextWanderAt = Math.max(nextWanderAt, Date.now() + ATTENTION_REST_MS)
     }
-    if (present) widget.showInactive()
+    if (present) presentWidget()
     else widget.hide()
     if (!present) savePosition()
     setTravelLoop(present)
   })
 
   ipcMain.on('move-to', (_event, place) => handleMoveCommand(place))
+  ipcMain.on('microphone-state', (_event, enabled) => tray?.setContextMenu(buildTrayMenu(enabled)))
   ipcMain.on('pause-wander', (_event, reason, paused) => {
     if (paused) wanderPauses.add(reason)
     else {
@@ -557,6 +593,15 @@ if (!app.requestSingleInstanceLock()) {
     }
     createTray()
     createWidget()
+
+    // Al despertar la Mac o cambiar de monitor, si debe verse, se vuelve a colocar.
+    const refreshWidget = () => {
+      if (widget?.isVisible()) presentWidget()
+    }
+    powerMonitor.on('resume', refreshWidget)
+    powerMonitor.on('unlock-screen', refreshWidget)
+    screen.on('display-removed', refreshWidget)
+    screen.on('display-metrics-changed', refreshWidget)
 
     // Prueba automática: guarda una captura de la ventana y cierra.
     const shot = process.env.NOVA_SMOKE_SHOT

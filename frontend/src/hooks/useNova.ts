@@ -110,6 +110,7 @@ export type VisualProfile = {
   trends: { field: keyof VisualObservation; value: string; count: number; total: number; recent_value: string | null }[]
   observations: { id: number; created_at: number; observation: VisualObservation }[]
   min_observations: number
+  face_enrolled: boolean
 }
 
 /** Eventos JSON que envía el backend; el audio llega aparte, como binario. */
@@ -252,10 +253,14 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
   // Programa un fragmento de audio justo después del anterior.
   const enqueueAudio = useCallback(
     (bytes: ArrayBuffer) => {
-      // Sin contexto de audio todavía no hay dónde reproducir.
+      // En la app de escritorio no hace falta un clic para sonar: se prepara aquí si otra ventana
+      // heredó el micrófono. En el navegador sigue siendo necesario, y sin él no hay dónde reproducir.
+      if (!audioContext.current && 'novaDesktop' in window) unlockAudio()
       const context = audioContext.current
       const output = analyser.current
       if (!context || !output) return
+      // Al despertar la Mac el audio puede quedar en pausa: sin esto, Nova nunca terminaría de hablar.
+      if (context.state !== 'running') void context.resume()
       const generation = audioGeneration.current
 
       // Cuenta el fragmento hasta que termine de sonar o falle.
@@ -288,7 +293,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
         }
       })
     },
-    [finishIfDone],
+    [finishIfDone, unlockAudio],
   )
 
   // Mantiene el WebSocket abierto y se reconecta si se cae.
@@ -540,6 +545,18 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'listen', enabled: next }))
   }, [unlockAudio])
 
+  // Si se cambia en otra ventana, esta se entera: comparten el mismo micrófono.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== LISTEN_STORAGE_KEY) return
+      const enabled = event.newValue === 'on'
+      latestListenEnabled.current = enabled
+      setListenEnabled(enabled)
+    }
+    addEventListener('storage', onStorage)
+    return () => removeEventListener('storage', onStorage)
+  }, [])
+
   // El micrófono se cierra mientras Nova responde, para que no se oiga a sí misma.
   useEffect(() => {
     const send = () => {
@@ -574,6 +591,12 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'forget_visual', observation_id: observationId }))
     }
+  }, [])
+
+  // Borra la huella de tu cara.
+  const forgetFace = useCallback(() => {
+    const ws = socket.current
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'forget_face' }))
   }, [])
 
   // Borra un recuerdo; el servidor responde con el cerebro actualizado.
@@ -658,6 +681,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     visualProfile,
     requestVisualProfile,
     forgetVisual,
+    forgetFace,
     listenEnabled,
     listenState,
     toggleListening,

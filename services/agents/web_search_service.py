@@ -12,7 +12,7 @@ from services.schemas import WebSearchResult
 
 SEARCH_MODEL = "claude-haiku-5-5"
 MAX_OUTPUT_TOKENS = 1024
-# Cada búsqueda se cobra y hace esperar a Carlos: con estas basta para casi todo.
+# Cada búsqueda se cobra y me hace esperar: con estas basta para casi todo.
 MAX_SEARCHES = 2
 MAX_SOURCES = 4
 # Si la herramienta tarda, la API pausa el turno y hay que pedirle que continúe.
