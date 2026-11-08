@@ -1,0 +1,15 @@
+# Configuración de las herramientas de desarrollo (pytest y ruff).
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+extend-exclude = ["frontend", "desktop", "data"]
+
+[tool.ruff.lint]
+# Errores reales: sintaxis, nombres sin definir, imports y variables sin usar.
+# La longitud de línea no se exige: los prompts tienen párrafos largos a propósito.
+select = ["E", "F", "W"]
+ignore = ["E501"]
