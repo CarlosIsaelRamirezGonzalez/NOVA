@@ -1,0 +1,4 @@
+# Pruebas y estilo. Solo hace falta lo que importan los módulos que se prueban.
+pydantic==2.14.2
+pytest==8.4.2
+ruff==0.14.4
