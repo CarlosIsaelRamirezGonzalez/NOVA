@@ -191,6 +191,24 @@ class MemoryStore:
                 # Sin confirmar la subida no se borra nada: se reintenta en la siguiente vuelta.
                 traceback.print_exc()
 
+    def pull(self) -> bool:
+        """Baja de la nube lo que otra copia haya guardado desde la última vez.
+
+        La versión web puede despertar en una instancia que lleva rato abierta: sin esto,
+        contestaría con una conversación vieja.
+
+        Returns:
+            Si llegó algo nuevo. Sin nube o sin red, `False`.
+        """
+        if not self.is_synced:
+            return False
+        with self.lock:
+            try:
+                return bool(self.connection.pull())
+            except Exception:
+                traceback.print_exc()
+                return False
+
     def _rebuild_local_copy(self) -> None:
         """Borra la copia local y la vuelve a bajar de la nube, ya sin lo olvidado.
 

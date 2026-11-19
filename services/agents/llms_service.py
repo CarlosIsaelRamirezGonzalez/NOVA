@@ -5,12 +5,14 @@ from collections.abc import AsyncIterator
 from anthropic import AsyncAnthropic
 from pydantic import ValidationError
 
+from services.chunk.name_filter import strip_name
 from services.context.usage_service import UsageService
 from services.schemas import (
     ChatMessage,
     ChatRequest,
     ClaudeUsage,
     ImagePart,
+    EmailArguments,
     MoveArguments,
     SearchArguments,
     TextPart,
@@ -20,12 +22,14 @@ from services.schemas import (
 MAX_OUTPUT_TOKENS = 16000
 MAX_QUERY_CHARS = 200
 MAX_WRITE_INSTRUCTION_CHARS = 400
+MAX_EMAIL_REQUEST_CHARS = 1200
 SEARCH_TOOL_NAME = "web_search"
 FORGET_TOOL_NAME = "forget_memory"
 CAMERA_TOOL_NAME = "look_through_camera"
 WRITE_TOOL_NAME = "write_in_front_app"
 MOVE_TOOL_NAME = "move_on_screen"
 LEARN_FACE_TOOL_NAME = "learn_my_face"
+EMAIL_TOOL_NAME = "email_report"
 # En una conversación en vivo importa empezar a hablar pronto: razonar costaba varios segundos.
 NO_THINKING = {"type": "disabled"}
 EFFORT = "low"
@@ -87,7 +91,9 @@ def _api_messages(messages: list[ChatMessage]) -> list[object]:
         elif message.role == "system":
             content = _note(message.content)
         elif message.content.strip():
-            content = message.content.rstrip()
+            # Las respuestas viejas traen mi nombre a cada rato; si se le muestran así, lo imita.
+            text = strip_name(message.content) if message.role == "assistant" else message.content
+            content = text.rstrip()
         else:
             continue
         role = "assistant" if message.role == "assistant" else "user"
@@ -221,6 +227,8 @@ class LLMService:
             yield self._move_tag(tool_arguments)
         elif tool_name == WRITE_TOOL_NAME:
             yield self._write_tag(tool_arguments)
+        elif tool_name == EMAIL_TOOL_NAME:
+            yield self._email_tag(tool_arguments)
 
     async def complete(self, request: ChatRequest) -> str:
         """Pide una respuesta completa, sin stream.
@@ -294,3 +302,22 @@ class LLMService:
         clean = instructions.replace("[", " ").replace("]", " ").strip()
         clean = clean[:MAX_WRITE_INSTRUCTION_CHARS].strip()
         return f"[[write: {clean}]]" if clean else ""
+
+    @staticmethod
+    def _email_tag(arguments: str) -> str:
+        """Convierte los argumentos de la herramienta en una etiqueta de correo.
+
+        Args:
+            arguments: Argumentos en JSON.
+
+        Returns:
+            La etiqueta, o una cadena vacía si los argumentos no son válidos.
+        """
+        try:
+            request = EmailArguments.model_validate_json(arguments).request
+        except ValidationError:
+            return ""
+
+        clean = request.replace("[", " ").replace("]", " ").strip()
+        clean = clean[:MAX_EMAIL_REQUEST_CHARS].strip()
+        return f"[[email: {clean}]]" if clean else ""

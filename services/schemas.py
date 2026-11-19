@@ -1,6 +1,6 @@
 """Modelos Pydantic de todos los datos que entran y salen de Nova.
 
-Agrupa los contratos con las APIs de xAI y con el navegador, para que ningún
+Agrupa los contratos con las APIs externas y con el navegador, para que ningún
 servicio maneje estructuras sin validar.
 """
 
@@ -34,7 +34,7 @@ MAX_PHOTO_DATA_URL_CHARS = 2_000_000
 # ---------------------------------------------------------------------------
 # Peticiones al modelo de lenguaje
 # ---------------------------------------------------------------------------
-UsagePurpose = Literal["conversation", "memory", "search", "voice"]
+UsagePurpose = Literal["conversation", "memory", "search", "report", "voice"]
 
 
 MovePlace = Literal[
@@ -189,6 +189,17 @@ class MoveArguments(BaseModel):
     place: MovePlace
 
 
+class EmailArguments(BaseModel):
+    """Argumentos con los que el modelo pide mandarme un reporte por correo.
+
+    Attributes:
+        request: Qué quiero en el correo, con todos los detalles que di: el tema, si hay que
+            investigar, si lleva diagramas, y qué de la conversación hay que incluir.
+    """
+
+    request: str
+
+
 class WriteArguments(BaseModel):
     """Argumentos con los que el modelo pide escribir en la app al frente.
 
@@ -244,9 +255,10 @@ class VoiceSettings(BaseModel):
         speed: Multiplicador de la velocidad de habla.
     """
 
-    stability: float = 0.35
+    # Estable y con poco estilo: suena más pareja y menos sensual.
+    stability: float = 0.6
     similarity_boost: float = 0.75
-    style: float = 0.45
+    style: float = 0.1
     speed: float = 1.05
 
 
@@ -301,6 +313,7 @@ class FilteredText(BaseModel):
         write_instructions: Lo que Nova debe escribir en la app al frente, si pidió hacerlo.
         move_place: A dónde quiere moverse Nova en la pantalla, si pidió hacerlo.
         learn_face_requested: Si Nova debe aprender mi cara porque se lo pedí.
+        email_request: Lo que debe llevar el reporte por correo, si pidió mandarlo.
     """
 
     text: str = ""
@@ -311,6 +324,7 @@ class FilteredText(BaseModel):
     write_instructions: str | None = None
     move_place: MovePlace | None = None
     learn_face_requested: bool = False
+    email_request: str | None = None
 
 
 class VisualObservation(BaseModel):
@@ -377,6 +391,30 @@ class FaceEnrollment(BaseModel):
 
     status: Literal["learned", "many_faces", "no_clear_face", "no_camera"]
     photos_used: int = 0
+
+
+class VoiceCheck(BaseModel):
+    """Resultado de comparar una petición dicha en voz alta con mi voz.
+
+    Attributes:
+        carlos_speaking: Si la voz se parece lo suficiente a la mía.
+        similarity: Parecido, de -1 a 1; se registra para poder ajustar el umbral.
+    """
+
+    carlos_speaking: bool
+    similarity: float
+
+
+class VoiceEnrollment(BaseModel):
+    """Resultado de aprender mi voz.
+
+    Attributes:
+        status: Si la aprendió o por qué no.
+        seconds_used: Segundos de voz que sirvieron.
+    """
+
+    status: Literal["learned", "too_short", "unavailable"]
+    seconds_used: float = 0.0
 
 
 class VisualRecord(BaseModel):
@@ -548,6 +586,7 @@ class StreamedReply(BaseModel):
         write_instructions: Lo que Nova debe escribir en la app al frente, si pidió hacerlo.
         move_place: A dónde quiere moverse Nova en la pantalla, si pidió hacerlo.
         learn_face_requested: Si Nova debe aprender mi cara porque se lo pedí.
+        email_request: Lo que debe llevar el reporte por correo, si pidió mandarlo.
     """
 
     raw_text: str = ""
@@ -557,6 +596,7 @@ class StreamedReply(BaseModel):
     write_instructions: str | None = None
     move_place: MovePlace | None = None
     learn_face_requested: bool = False
+    email_request: str | None = None
 
 
 class PhotoResult(BaseModel):
@@ -860,12 +900,14 @@ class UsageDay(BaseModel):
         conversation: Dólares en conversación.
         memory: Dólares en recuerdos.
         search: Dólares en búsquedas.
+        report: Dólares en reportes por correo.
     """
 
     day: str
     conversation: float
     memory: float
     search: float
+    report: float = 0.0
 
 
 class UsageServiceTotal(UsageRecord):
@@ -987,6 +1029,106 @@ class WriteStartEvent(BaseModel):
     type: Literal["write_start"] = "write_start"
 
 
+class EmailDoneEvent(BaseModel):
+    """Aviso de que Nova terminó un reporte por correo, o de por qué no lo mandó.
+
+    Attributes:
+        type: Discriminador del evento.
+        sent: Si el correo salió.
+        subject: Asunto del correo.
+        message: Lo que se muestra en el chat.
+    """
+
+    type: Literal["email_done"] = "email_done"
+    sent: bool
+    subject: str = ""
+    message: str
+
+
+class ProactiveEvent(BaseModel):
+    """Aviso de que Nova va a hablar por su cuenta, sin que nadie le haya dicho nada.
+
+    Attributes:
+        type: Discriminador del evento.
+    """
+
+    type: Literal["proactive"] = "proactive"
+
+
+GlanceKind = Literal["conversation", "voice", "sound", "routine"]
+
+
+class SoundEvent(BaseModel):
+    """Un sonido del cuarto que vale la pena revisar.
+
+    Attributes:
+        label: Nombre del sonido en AudioSet, en inglés.
+        probability: Qué tan seguro está el modelo, de 0 a 1.
+    """
+
+    label: str
+    probability: float
+
+
+class GlanceDecision(BaseModel):
+    """Lo que Nova concluye de un vistazo que dio por su cuenta.
+
+    Attributes:
+        observation: Una frase objetiva de lo que vio que importa para entender a Carlos.
+        speak: Si vale la pena interrumpir para decirle algo.
+        say: Lo que diría, una frase corta; vacío si no habla.
+    """
+
+    # La API de salidas estructuradas exige que el esquema no admita campos extra.
+    model_config = ConfigDict(extra="forbid")
+
+    observation: str
+    speak: bool
+    say: str
+
+
+class SurroundingsNote(BaseModel):
+    """Algo que Nova notó del entorno de Carlos sin que se lo pidiera.
+
+    Attributes:
+        at: Momento en segundos.
+        kind: Qué la hizo mirar.
+        reason: El motivo en palabras, para el modelo.
+        observation: Lo que vio.
+    """
+
+    at: float
+    kind: GlanceKind
+    reason: str
+    observation: str
+
+
+class ReportDraft(BaseModel):
+    """Reporte ya escrito por Claude, antes de convertirlo en correo.
+
+    Attributes:
+        subject: Asunto del correo.
+        markdown: Cuerpo en Markdown; los diagramas van en bloques ```mermaid.
+        sources: Enlaces que Claude citó al investigar.
+    """
+
+    subject: str
+    markdown: str
+    sources: list[str] = Field(default_factory=list)
+
+
+class ReportDiagram(BaseModel):
+    """Un diagrama ya dibujado como imagen para el correo.
+
+    Attributes:
+        content_id: Identificador con el que el HTML del correo lo muestra.
+        png: Imagen en PNG.
+    """
+
+    content_id: str
+    png: bytes
+
+
 class WriteDoneEvent(BaseModel):
     """Aviso de que Nova dejó de escribir en la app al frente.
 
@@ -1016,11 +1158,13 @@ class PhotoRequestEvent(BaseModel):
         type: Discriminador del evento.
         request_id: Identificador que debe devolver la respuesta.
         remaining: Fotos disponibles hoy, contando esta.
+        ambient: Si Nova mira por su cuenta; la foto no se pone en el chat.
     """
 
     type: Literal["photo_request"] = "photo_request"
     request_id: str
     remaining: int
+    ambient: bool = False
 
 
 class GestureReactionEvent(BaseModel):
@@ -1135,8 +1279,76 @@ class ErrorEvent(BaseModel):
     message: str
 
 
+class CapabilitiesEvent(BaseModel):
+    """Qué puede hacer el servidor al que se conectó la interfaz.
+
+    La versión web no tiene micrófono propio, ni escritorio, ni modelo de caras: la interfaz
+    oculta lo que no aplica en lugar de mostrar botones que fallarían.
+
+    Attributes:
+        type: Discriminador del evento.
+        microphone: Si el servidor escucha "Oye Nova" con su propio micrófono.
+        desktop: Si puede escribir en otras apps y moverse por el escritorio.
+        faces: Si puede aprender y reconocer la cara de Carlos.
+    """
+
+    type: Literal["capabilities"] = "capabilities"
+    microphone: bool
+    desktop: bool
+    faces: bool
+
+
+class ServerFeatures(BaseModel):
+    """Piezas que se encienden según dónde corre Nova.
+
+    En la Mac todo está disponible. En Vercel no hay micrófono, ni escritorio, ni espacio para
+    los modelos locales, y cada instancia vive poco.
+
+    Attributes:
+        microphone: Escucha con Vosk y Whisper desde el servidor.
+        desktop: Escribe en la app al frente y mueve la ventana.
+        faces: Reconoce la cara con InsightFace.
+        semantic_search: Busca recuerdos por significado con fastembed y Qdrant.
+        vault: Genera la bóveda de Obsidian.
+        serverless: Corre en instancias que viven poco: baja la memoria al conectarse y la sube
+            al terminar cada turno, en lugar de cada 30 segundos.
+    """
+
+    microphone: bool = True
+    desktop: bool = True
+    faces: bool = True
+    semantic_search: bool = True
+    vault: bool = True
+    serverless: bool = False
+
+
+class SessionStatus(BaseModel):
+    """Si la interfaz necesita pedir la contraseña antes de conectarse.
+
+    Attributes:
+        required: Si este servidor pide contraseña; en la Mac no.
+        authenticated: Si el navegador ya tiene una sesión válida.
+    """
+
+    required: bool
+    authenticated: bool
+
+
+class LoginRequest(BaseModel):
+    """Contraseña que envía la pantalla de acceso de la versión web.
+
+    Attributes:
+        password: Lo que escribió el usuario; nunca se guarda ni se registra.
+    """
+
+    password: Annotated[str, StringConstraints(min_length=1, max_length=256)]
+
+
 ServerEvent = (
-    TokenEvent
+    CapabilitiesEvent
+    | ProactiveEvent
+    | EmailDoneEvent
+    | TokenEvent
     | BrainEvent
     | RecallEvent
     | HistoryEvent

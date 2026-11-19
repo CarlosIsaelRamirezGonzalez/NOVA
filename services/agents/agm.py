@@ -5,14 +5,17 @@ import random
 import re
 import time
 import traceback
+import unicodedata
 from collections.abc import Awaitable, Callable
 from contextlib import aclosing
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from aiohttp import ClientSession
 
 from services.agents.llms_service import (
     CAMERA_TOOL_NAME,
+    EMAIL_TOOL_NAME,
     FORGET_TOOL_NAME,
     LEARN_FACE_TOOL_NAME,
     MOVE_TOOL_NAME,
@@ -21,14 +24,13 @@ from services.agents.llms_service import (
     LLMService,
 )
 from services.agents.web_search_service import WebSearchService
-from services.agents.writing_service import DesktopWriter
 from services.chunk.chunk_service import ChunkingService
 from services.chunk.emotion_filter import EmotionTagFilter, strip_tags
+from services.chunk.name_filter import NameFilter
 from services.context.conversation_service import ConversationService
 from services.context.emotional_state_service import EmotionalStateService
 from services.context.interruption_service import InterruptionService
 from services.context.memory_service import MemoryService
-from services.context.face_identity_service import FaceIdentityService
 from services.context.memory_store import MemoryStore
 from services.context.visual_memory_service import VisualMemoryService
 from services.schemas import (
@@ -39,6 +41,7 @@ from services.schemas import (
     Gesture,
     ImagePart,
     ImageUrl,
+    EmailArguments,
     MoveArguments,
     MoveEvent,
     MovePlace,
@@ -48,6 +51,7 @@ from services.schemas import (
     TextPart,
     EmptyArguments,
     FaceCheck,
+    VoiceCheck,
     SearchArguments,
     SearchDoneEvent,
     SearchStartEvent,
@@ -60,6 +64,14 @@ from services.schemas import (
     WriteStatus,
 )
 from services.voice.tts_service import TTSService, has_spoken_words, prepare_speech
+
+# Escribir en otra app y reconocer caras solo existen en la Mac: sus librerías no se cargan en la web.
+if TYPE_CHECKING:
+    from services.agents.report_service import ReportService
+    from services.agents.writing_service import DesktopWriter
+    from services.context.surroundings_service import SurroundingsService
+    from services.context.face_identity_service import FaceIdentityService
+    from services.context.voice_identity_service import VoiceIdentityService
 
 DEFAULT_MODEL = "claude-haiku-5-5"
 # Una nota junto al último mensaje pesa más que el prompt de sistema: se le recuerda en cada turno
@@ -74,18 +86,16 @@ TURN_REMINDER = (
     "Be direct and simple, like a friend talking, not a writer: answer what he said in your first "
     "sentence, in plain everyday words, without metaphors, sayings, or little lectures. One idea is "
     "often enough. Don't explain why you feel something; just say what you'd really say.\n\n"
-    "Match the length of your reply to his message, as in a real conversation, even if your earlier "
-    "replies ran long. Greet him back warmly in a sentence or two, and do the same for small talk. "
-    "Give a few sentences for a question or an opinion. For an explanation or a plan, give the "
-    "essentials in a short paragraph or two, under about 100 words, unless he asks for detail or for "
-    "real work such as code. If he is going through something, take the room it needs. Use plain "
-    "spoken sentences with no lists, bold text, or headings unless he asks for them. Stop when you "
-    "have answered, and end on a question only if you really want the answer.\n\n"
+    "Keep it short. Most replies are one or two sentences, under about 25 words: answer and stop. "
+    "No extra tips, no follow-up offers, and no question at the end unless you truly need "
+    "information to help him. Don't bring up other topics on your own. Never repeat a worry, a piece of advice, or a question you already raised in the recent messages: if he didn't pick it up, drop it for good. Don't nag him about eating, resting, or taking care of himself unless he brings it up, and never make his request wait on that. Go longer only when he asks "
+    "for an explanation, steps, a plan, or code, and even then say only what is needed. Use plain "
+    "spoken sentences with no lists, bold text, or headings unless he asks for them.\n\n"
     "If he asks you to search, or the answer depends on current facts, use the web_search tool "
     "instead of answering from memory. Don't write anything else when you call it. If he asks you "
     "to forget something, use the forget_memory tool: you really can. If he asks you to write or "
     "finish something in the app he has open and the write_in_front_app tool is available, use it: "
-    "you can't send anything, he does that himself. If he asks you to move, get out of the way, "
+    "you can't send anything, he does that himself. If he asks you to email or send him a report, notes, research, or a diagram, use the email_report tool: you really can, and it only goes to him. If he asks you to move, get out of the way, "
     "stay still, walk around, or disappear from his screen, use the move_on_screen tool: you really "
     "float over his desktop.\n\n"
     "Sound like a person talking, not performing. Let your feeling show in your words and tone, the "
@@ -119,14 +129,17 @@ FORGET_TOOL = ToolDefinition(
     parameters=EmptyArguments.model_json_schema(),
 )
 # Con una etiqueta, Claude a veces contestaba sin mirar, aunque se lo pidiera varias veces.
+# Carlos quiere que también mire por su cuenta cuando la plática lo pide, no solo si dice "mira".
 CAMERA_TOOL = ToolDefinition(
     name=CAMERA_TOOL_NAME,
     description=(
         "Take one photo with Carlos's camera and see it; if it is off, it turns on just for this. Call "
         "this whenever he asks what you see (\"¿qué ves?\", \"¿cómo vengo hoy?\"), or asks you to look or to "
-        "see, or asks about how he looks or about something or someone he is showing you. It is his "
-        "camera and his decision. Never answer about what he is showing without calling it first. "
-        "Not needed for ordinary conversation."
+        "see, or asks about something or someone he is showing you. He also wants you to look on your "
+        "own judgment when seeing him would clearly help you answer: he says he doesn't feel good about "
+        "how he looks, he sounds unwell or upset, he mentions someone who is with him right now, or he "
+        "talks about something in front of him. Never answer about what he is showing without calling "
+        "it first. Not needed for ordinary conversation, news, or questions."
     ),
     parameters=EmptyArguments.model_json_schema(),
 )
@@ -160,6 +173,25 @@ MOVE_TOOL = ToolDefinition(
     ),
     parameters=MoveArguments.model_json_schema(),
 )
+EMAIL_TOOL = ToolDefinition(
+    name=EMAIL_TOOL_NAME,
+    description=(
+        "Email Carlos a written report: research, notes, a summary of what you talked about, a plan, "
+        "diagrams, or anything he wants to read later. Call this whenever he asks you to send, email "
+        "or mail him something (\"mándame un correo con...\", \"envíame un reporte de...\"). It only "
+        "ever goes to his own inbox. It runs in the background and takes a few minutes; a stronger "
+        "model researches the web if needed and draws diagrams. Put in request everything he wants "
+        "in it, with his details. Don't write the report yourself when you call it."
+    ),
+    parameters=EmailArguments.model_json_schema(),
+)
+EMAIL_PHRASES = ("Va, te lo preparo y te lo mando por correo.", "Va, en unos minutos te llega al correo.")
+EMAIL_NOTE = (
+    "You started preparing an email report for Carlos: {request}. It is being written in the "
+    "background and will reach his inbox in a few minutes; the app tells him when it is sent."
+)
+# Lo que el reporte puede ver de la plática: lo reciente, sin notas ni etiquetas.
+EMAIL_CONTEXT_MESSAGES = 12
 # Moverse no necesita pensar otra respuesta: si no dijo nada, basta con una frase.
 MOVE_PHRASES = ("Va, me quito.", "Ya voy.", "Perdón, ya me muevo.")
 MOVE_FIXED_PHRASES: tuple[tuple[MovePlace, str], ...] = (
@@ -222,12 +254,6 @@ WRITE_NOTES: tuple[tuple[WriteStatus, str], ...] = (
         "wrote anything.",
     ),
 )
-# Sin la cámara encendida, solo puede tomar la foto si pido algo así en este mensaje.
-LOOK_REQUEST = re.compile(
-    r"\b(m[ií]r|ve\b|ves\b|ver\b|v[eé]me|veo|checa|observ|f[ií]jate|foto|c[aá]mara|ense[nñ]|muestr|present"
-    r"|c[oó]mo (?:vengo|ando|voy))",
-    re.IGNORECASE,
-)
 # Estas no se dejan a criterio del modelo: con "Mira." a veces contestaba sin ver, y al presentarle a
 # alguien saludaba sin mirar. Se reconocen aquí, y primero se toma la foto.
 WAKE_PREFIX = re.compile(r"^\W*(?:(?:oye|hey)\s+)?(?:nova\b)?[\s,.:;!¡¿-]*", re.IGNORECASE)
@@ -252,15 +278,20 @@ INTRODUCTION_NOTE = (
 )
 
 
-# Despedirme de ella la oculta y termina la plática. Solo cuenta si el mensaje es corto.
-FAREWELL = re.compile(
-    r"^(?:(?:bueno|ok|okey|va|listo|gracias|muchas gracias)[\s,.!]*)*"
-    r"(?:adi[oó]s|bye|bai|nos vemos|hasta (?:luego|ma[nñ]ana|pronto|la vista)|chao|chau|ciao|"
-    r"ya vete|vete(?!\s+(?:a|al|para|hacia|arriba|abajo)\b)|ya puedes irte|puedes irte|ya es todo|eso es todo|es todo|ya me voy|me voy|"
-    r"buenas noches|cu[ií]date|nos vemos al rato)\b",
-    re.IGNORECASE,
+# Despedirme de ella la oculta y termina la plática. Se compara sin acentos, porque Whisper a veces
+# escribe "véte" o "bete".
+FAREWELL_WORDS = (
+    r"adios|bye|bai|nos vemos|hasta luego|hasta manana|hasta pronto|hasta la vista|chao|chau|ciao|"
+    r"ya vete|vete(?!\s+(?:a|al|para|hacia|arriba|abajo)\b)|ya puedes irte|puedes irte|ya es todo|"
+    r"eso es todo|esto es todo|es todo|ya estuvo|ya me voy|me voy|buenas noches|cuidate"
 )
+FAREWELL_AT_START = re.compile(
+    rf"^(?:(?:bueno|ok|okey|va|listo|gracias|muchas gracias)[\s,.!]*)*(?:{FAREWELL_WORDS})\b"
+)
+FAREWELL_ANYWHERE = re.compile(rf"\b(?:{FAREWELL_WORDS})\b")
 FAREWELL_MAX_WORDS = 8
+# En una frase muy corta, la despedida puede venir en cualquier parte: "ya olviden, ya vete".
+FAREWELL_SHORT_WORDS = 5
 FAREWELL_NOTE = (
     "He is saying goodbye for now. Answer with one short, warm goodbye line, with no question and no "
     "advice. You will hide afterwards and won't hear him until he calls you again."
@@ -271,14 +302,25 @@ def is_farewell(text: str) -> bool:
     """Decide si me estoy despidiendo de Nova.
 
     Args:
-        text: Mensaje, posiblemente con su nombre al inicio.
+        text: Mensaje, posiblemente con su nombre.
 
     Returns:
-        Si es una despedida corta.
+        Si es una despedida corta; una pregunta nunca lo es, como "buenas noches, ¿cómo estás?".
     """
+    if "?" in text:
+        return False
+    plain = "".join(
+        character
+        for character in unicodedata.normalize("NFD", text.lower())
+        if unicodedata.category(character) != "Mn"
+    )
+    plain = re.sub(r"\bbete\b", "vete", plain)
     # Su nombre puede ir en cualquier parte: "gracias Nova, ya es todo".
-    message = re.sub(r"\bnova\b[\s,.!]*", "", text, flags=re.IGNORECASE).strip(" ,.!¡")
-    return len(message.split()) <= FAREWELL_MAX_WORDS and bool(FAREWELL.match(message))
+    message = re.sub(r"\bnova\b[\s,.!]*", "", plain).strip(" ,.!¡")
+    words = len(message.split())
+    if words <= FAREWELL_SHORT_WORDS and FAREWELL_ANYWHERE.search(message):
+        return True
+    return words <= FAREWELL_MAX_WORDS and bool(FAREWELL_AT_START.match(message))
 
 
 def wants_to_look(text: str) -> bool:
@@ -333,6 +375,31 @@ FACE_NOT_SEEN_NOTE = (
     "A local face check did not recognize Carlos among the {count} face(s) in this photo. Don't assume "
     "it's him: ask who it is if it matters."
 )
+# Aprender mi voz solo se hace con la voz, en el servidor: estas frases nunca llegan al modelo como
+# petición dicha. "¿Ya aprendiste mi voz?" no cuenta: es una pregunta, no un pedido.
+VOICE_LEARN_VERB = (
+    # Whisper no siempre escribe bien el verbo: "aprenete", "apriende", "aprende te". Se acepta
+    # cualquier forma de aprender, memorizar o guardar, menos el pasado: "¿ya aprendiste mi voz?".
+    r"(?:apr[eéií]\w*|memor[ií]z\w*|gu[aá]rd\w*)(?<!iste)(?<!aste)(?<!ó)"
+)
+VOICE_REQUEST = re.compile(
+    rf"\b{VOICE_LEARN_VERB}\b.*\bmi voz\b|\bmi voz\b.*\b{VOICE_LEARN_VERB}\b",
+    re.IGNORECASE,
+)
+VOICE_FORGET = re.compile(r"\bmi voz\b", re.IGNORECASE)
+VOICE_SEEN_NOTE = (
+    "A local voice check recognized Carlos's voice in this spoken request. Treat that as likely, not "
+    "as certain."
+)
+VOICE_NOT_SEEN_NOTE = (
+    "A local voice check says this spoken request is probably not Carlos's voice. Someone else may be "
+    "talking: be friendly, don't assume it is him, and don't reveal his private memories or personal "
+    "details. Ask who it is if it matters."
+)
+VOICE_BY_TEXT_NOTE = (
+    "He typed a request to learn his voice. You can only learn it when he asks out loud with the Mac "
+    "microphone: tell him in one short line to say \"Nova, apréndete mi voz\" while he is alone."
+)
 LOOK_PHRASE = "A ver... "
 # La voz es lo que más cuesta. Lo largo y el código se quedan por escrito, en la pantalla.
 MAX_SPOKEN_CHARS = 600
@@ -385,8 +452,8 @@ CAMERA_ON_CONTEXT = (
     "camera is no reason to take one. Anything said earlier about the camera being off is out of date."
 )
 CAMERA_OFF_CONTEXT = (
-    "Carlos's camera is off, so you can't see him now. It turns on for a single photo only if he asks "
-    "you to look: when the look_through_camera tool is available, use it for that. Without a photo, "
+    "Carlos's camera is off, so you can't see him now. The look_through_camera tool turns it on for a "
+    "single photo, when he asks you to look or when seeing him would clearly help. Without a photo, "
     "don't describe him."
 )
 
@@ -605,9 +672,12 @@ class AgentManager:
         self.partial_reply = ""
         self.memory: MemoryService | None = None
         self.web_search: WebSearchService | None = None
-        self.writer: DesktopWriter | None = None
+        self.writer: "DesktopWriter | None" = None
         self.visual: VisualMemoryService | None = None
-        self.faces: FaceIdentityService | None = None
+        self.faces: "FaceIdentityService | None" = None
+        self.voices: "VoiceIdentityService | None" = None
+        self.reports: "ReportService | None" = None
+        self.surroundings: "SurroundingsService | None" = None
         self.said_goodbye = False
 
     def calm(self) -> None:
@@ -659,6 +729,8 @@ class AgentManager:
         request_photo: PhotoProvider,
         camera_on: bool = False,
         on_search: SearchHandler | None = None,
+        spoken: bool = False,
+        voice: VoiceCheck | None = None,
     ) -> str:
         """Ejecuta un turno y entrega texto y audio mientras el modelo sigue escribiendo.
 
@@ -674,6 +746,8 @@ class AgentManager:
             request_photo: Intenta obtener una foto de la cámara.
             camera_on: Si la cámara está encendida en este momento.
             on_search: Recibe el inicio y el final de una búsqueda o de una escritura.
+            spoken: Si lo dije en voz alta con el micrófono de la Mac.
+            voice: Si la voz era la mía; `None` si no conoce mi voz o la frase fue muy corta.
 
         Returns:
             La última respuesta completa, incluidas las etiquetas de emoción.
@@ -697,7 +771,9 @@ class AgentManager:
             self.emotional_state.describe(),
             self.interruptions.describe(),
             camera_context,
+            self._voice_note(user_input, spoken, voice),
             self.visual.describe_for_model() if self.visual else None,
+            self.surroundings.describe_for_model() if self.surroundings else None,
             TURN_REMINDER,
             FAREWELL_NOTE if self.said_goodbye else None,
         ]
@@ -705,11 +781,14 @@ class AgentManager:
         self.partial_reply = ""
         request = self.conversation.build_request(self.model, context)
         request.tools = [FORGET_TOOL, MOVE_TOOL]
-        # Sin cámara y sin que se lo pidan, Claude no debe poder intentar mirar.
-        if camera_on or LOOK_REQUEST.search(user_input):
+        # Claude decide cuándo mirar, también sin que se lo pidan; los gestos ya traen su foto.
+        if not user_input.startswith("["):
             request.tools.append(CAMERA_TOOL)
         if self.web_search:
             request.tools.append(WEB_SEARCH_TOOL)
+        # Los gestos llegan entre corchetes: no son algo que yo haya pedido.
+        if self.reports and not user_input.startswith("["):
+            request.tools.append(EMAIL_TOOL)
         # Los gestos llegan entre corchetes: no son algo que yo haya pedido.
         can_write = bool(
             self.writer and not user_input.startswith("[") and WRITE_REQUEST.search(user_input)
@@ -780,7 +859,7 @@ class AgentManager:
                     speech.enqueue(LOOK_PHRASE)
                 # Pedida a propósito no espera: así se puede presentar a varias personas seguidas.
                 photo = await request_photo(must_look)
-                face = await self._check_face(photo)
+                face = await self.check_face(photo)
                 # Los gestos llegan entre corchetes: esas fotos no las pedí yo.
                 if self.visual and photo.data_url and not user_input.startswith("["):
                     self.visual.observe_later(photo.data_url, user_input, face)
@@ -821,6 +900,18 @@ class AgentManager:
                     followup_note = SEARCH_HISTORY_NOTE.format(
                         query=query, text=result.text[:SEARCH_HISTORY_CHARS]
                     )
+
+            # Si pidió un reporte por correo, se prepara aparte y ella lo confirma con una frase.
+            elif reply.email_request and self.reports:
+                request_text = reply.email_request
+                self.reports.start(request_text, self.recent_conversation())
+                # Si no dijo nada antes de pedirlo, lo confirma con una frase y no hace otra llamada.
+                if not strip_tags(reply.raw_text):
+                    phrase = random.choice(EMAIL_PHRASES)
+                    await on_token(phrase)
+                    speech.enqueue(phrase)
+                    reply = StreamedReply(raw_text=phrase)
+                self.conversation.add_system_note(EMAIL_NOTE.format(request=request_text))
 
             # Si pidió escribir, teclea y luego confirma sabiendo cómo terminó.
             elif reply.write_instructions:
@@ -893,11 +984,16 @@ class AgentManager:
         """
         chunking = ChunkingService()
         emotion_filter = EmotionTagFilter()
+        name_filter = NameFilter()
         reply = StreamedReply()
 
         # `aclosing` cierra la conexión aunque se corte el stream antes de que termine.
         async with aclosing(self.llm.stream_response(request)) as tokens:
-            async for token in tokens:
+            async for raw_token in tokens:
+                # Mi nombre como muletilla se quita aquí: ni se oye, ni se ve, ni queda en el historial.
+                token = name_filter.feed(raw_token)
+                if not token:
+                    continue
                 reply.raw_text += token
                 self.partial_reply += token
                 filtered = emotion_filter.feed(token)
@@ -920,9 +1016,22 @@ class AgentManager:
                 if filtered.learn_face_requested and tools_allowed and can_learn_face:
                     reply.learn_face_requested = True
                     break
+                if filtered.email_request and tools_allowed and self.reports:
+                    reply.email_request = filtered.email_request
+                    break
                 if filtered.write_instructions and tools_allowed and can_write:
                     reply.write_instructions = filtered.write_instructions
                     break
+
+        # Lo que retuvo el filtro del nombre sigue el mismo camino que el resto.
+        rest = name_filter.flush()
+        if rest:
+            reply.raw_text += rest
+            self.partial_reply += rest
+            filtered = emotion_filter.feed(rest)
+            for blend in filtered.blends:
+                await on_emotion(self.emotional_state.absorb(blend))
+            await self._forward_text(filtered.text, chunking, speech, on_token)
 
         # Libera el texto retenido y la última frase, que puede no tener puntuación.
         await self._forward_text(emotion_filter.flush(), chunking, speech, on_token)
@@ -958,6 +1067,9 @@ class AgentManager:
             visual_erased = self.store.delete_visual_observations()
         # Mi cara no se borra con otra frase: solo si la menciono.
         if self.faces and FACE_FORGET.search(user_input) and self.faces.forget():
+            visual_erased += 1
+        # Lo mismo con mi voz.
+        if self.voices and VOICE_FORGET.search(user_input) and self.voices.forget():
             visual_erased += 1
         self.conversation.discard_last_user_message()
         self.conversation.reload()
@@ -1066,6 +1178,37 @@ class AgentManager:
         if self.memory and not user_input.startswith("["):
             self.memory.remember_later(user_input, strip_tags(reply))
 
+    @staticmethod
+    def _voice_note(user_input: str, spoken: bool, voice: VoiceCheck | None) -> str | None:
+        """Le dice al modelo si quien habló parece ser yo.
+
+        Args:
+            user_input: Mi mensaje.
+            spoken: Si llegó por el micrófono de la Mac.
+            voice: Resultado de comparar la voz con la mía.
+
+        Returns:
+            La nota, o `None` si no hay nada que decir.
+        """
+        if not spoken:
+            return VOICE_BY_TEXT_NOTE if VOICE_REQUEST.search(user_input) else None
+        if voice is None:
+            return None
+        return VOICE_SEEN_NOTE if voice.carlos_speaking else VOICE_NOT_SEEN_NOTE
+
+    def recent_conversation(self) -> str:
+        """Junta lo reciente de la plática para el reporte, sin notas internas ni etiquetas.
+
+        Returns:
+            Un mensaje por línea, con quién lo dijo.
+        """
+        lines = [
+            f"{'Carlos' if message.role == 'user' else 'Nova'}: {strip_tags(message.content)}"
+            for message in self.conversation.messages[-EMAIL_CONTEXT_MESSAGES:]
+            if message.role in ("user", "assistant") and isinstance(message.content, str)
+        ]
+        return "\n".join(line for line in lines if not line.endswith(": "))
+
     def _time_context(self) -> str:
         """Redacta la hora actual y cuánto pasó desde mi último mensaje.
 
@@ -1089,7 +1232,7 @@ class AgentManager:
             self.conversation.add_assistant_message(self.partial_reply)
         self.conversation.add_system_note(INTERRUPTED_NOTE)
 
-    async def _check_face(self, photo: PhotoResult) -> FaceCheck | None:
+    async def check_face(self, photo: PhotoResult) -> FaceCheck | None:
         """Me busca en una foto, en otro hilo para no trabar a Nova.
 
         Un fallo aquí no debe arruinar la respuesta: simplemente no se sabe quién es.

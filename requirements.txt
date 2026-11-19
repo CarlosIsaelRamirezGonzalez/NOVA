@@ -11,6 +11,8 @@ fastembed==0.9.1
 vosk==0.3.44
 sounddevice==0.5.6
 pywhispercpp==1.5.1
+sherpa-onnx==2.0.1
+markdown==3.11.2
 numpy==2.5.4
 onnxruntime==1.31.1
 pillow==13.0.0

@@ -138,6 +138,7 @@ export default function App() {
     forgetMemory,
     unlockAudio,
     getLevel,
+    capabilities,
   } = useNova(camera.capture, camera.active)
   const [draft, setDraft] = useState('')
   // Lo que el usuario va diciendo, antes de enviarse.
@@ -396,8 +397,8 @@ export default function App() {
                 : 'Cámara'}
           </button>
 
-          {/* Enciende o apaga el micrófono */}
-          {listenButton}
+          {/* Enciende o apaga el micrófono del servidor; en la web se dicta con el navegador */}
+          {capabilities?.microphone && listenButton}
 
           {/* Abre la vista de su memoria */}
           <button

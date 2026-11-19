@@ -14,14 +14,17 @@ from services.schemas import (
     VoiceQuota,
 )
 
-# Precios de Claude Haiku 5.5 en dólares por millón de tokens, para prompts de hasta 100 mil tokens.
-# Si cambias de modelo o de precio, actualízalos: el costo de cada llamada se guarda al registrarla.
-INPUT_PRICE = 0.10
-CACHE_WRITE_PRICE = 0.125
-CACHE_READ_PRICE = 0.01
-OUTPUT_PRICE = 0.50
+# Precios en dólares por millón de tokens: entrada, escritura en caché, lectura de caché y salida.
+# Haiku 5.5 vale para prompts de hasta 100 mil tokens. Si cambias de modelo o de precio,
+# actualízalos: el costo de cada llamada se guarda al registrarla.
+HAIKU_MODEL = "claude-haiku-5-5"
+MODEL_PRICES: tuple[tuple[str, tuple[float, float, float, float]], ...] = (
+    (HAIKU_MODEL, (0.10, 0.125, 0.01, 0.50)),
+    ("claude-sonnet-5-5", (2.00, 2.50, 0.20, 10.00)),
+)
 SEARCH_PRICE = 0.01
 TOKENS_PER_PRICE_UNIT = 1_000_000
+PURPOSES: tuple[UsagePurpose, ...] = ("conversation", "memory", "search", "report", "voice")
 
 DAYS_SHOWN = 30
 
@@ -37,18 +40,24 @@ class UsageService:
         """
         self.store = store
 
-    def record_claude(self, purpose: UsagePurpose, usage: ClaudeUsage) -> None:
+    def record_claude(
+        self, purpose: UsagePurpose, usage: ClaudeUsage, model: str = HAIKU_MODEL
+    ) -> None:
         """Registra una llamada a Claude.
 
         Args:
             purpose: Para qué fue la llamada.
             usage: Tokens y búsquedas que reportó la API.
+            model: Modelo que respondió; define el precio.
         """
+        input_price, cache_write_price, cache_read_price, output_price = next(
+            (prices for name, prices in MODEL_PRICES if name == model), MODEL_PRICES[0][1]
+        )
         tokens_cost = (
-            usage.input_tokens * INPUT_PRICE
-            + usage.cache_write_tokens * CACHE_WRITE_PRICE
-            + usage.cache_read_tokens * CACHE_READ_PRICE
-            + usage.output_tokens * OUTPUT_PRICE
+            usage.input_tokens * input_price
+            + usage.cache_write_tokens * cache_write_price
+            + usage.cache_read_tokens * cache_read_price
+            + usage.output_tokens * output_price
         ) / TOKENS_PER_PRICE_UNIT
         self._save(
             UsageRecord(
@@ -93,6 +102,7 @@ class UsageService:
                     conversation=sum(row.cost_usd for row in of_day if row.purpose == "conversation"),
                     memory=sum(row.cost_usd for row in of_day if row.purpose == "memory"),
                     search=sum(row.cost_usd for row in of_day if row.purpose == "search"),
+                    report=sum(row.cost_usd for row in of_day if row.purpose == "report"),
                 )
             )
 
@@ -108,7 +118,7 @@ class UsageService:
                 credits=sum(row.credits for row in month_rows if row.purpose == purpose),
                 cost_usd=sum(row.cost_usd for row in month_rows if row.purpose == purpose),
             )
-            for purpose in ("conversation", "memory", "search", "voice")
+            for purpose in PURPOSES
         ]
 
         return UsageEvent(

@@ -13,8 +13,16 @@ SUBSCRIPTION_URL = "https://api.elevenlabs.io/v1/user/subscription"
 # El modelo en vivo gasta medio crédito por carácter; se usa si la API no reporta el costo.
 CREDITS_PER_CHARACTER = 0.5
 
-# Gabriela: mexicana, de mediana edad, cálida. Se puede cambiar con `ELEVENLABS_VOICE_ID`.
-DEFAULT_VOICE_ID = "hHjbwzYZW17oh0p05AKv"
+# Betty: latina, juvenil y de caricatura, sin el tono sensual de la voz anterior.
+# Se puede cambiar con `ELEVENLABS_VOICE_ID`; ver `ALTERNATE_VOICE_IDS`.
+DEFAULT_VOICE_ID = "iV6xDQ4wcM3ZcXDx30GB"
+# Otras voces que se probaron, para cambiar sin buscarlas de nuevo.
+ALTERNATE_VOICE_IDS = (
+    "7yuqhKJfGa6zud57AaAx",  # Elsa: latina, robótica.
+    "weA4Q36twV5kwSaTEL0Q",  # Eva: robot futurista, en inglés.
+    "MEJe6hPrI48Kt2lFuVe3",  # Yumi: tierna y robótica, en inglés.
+    "hHjbwzYZW17oh0p05AKv",  # Gabriela: la voz anterior, mexicana y cálida.
+)
 # Baja latencia, para conversar en vivo, y admite etiquetas de audio.
 DEFAULT_MODEL_ID = "eleven_v4_turbo"
 

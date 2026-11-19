@@ -20,12 +20,14 @@ MOVE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 WRITE_PATTERN = re.compile(r"\[\[\s*write\s*:\s*([^\[\]]{1,400}?)\s*\]\]", re.IGNORECASE)
+EMAIL_PATTERN = re.compile(r"\[\[\s*email\s*:\s*([^\[\]]{1,1200}?)\s*\]\]", re.IGNORECASE)
 # Admite `[[sad]]` y mezclas como `[[sad:0.6, worried:0.4]]`.
 _COMPONENT = r"[a-zA-Z]+(?:\s*:\s*\d*\.?\d+)?"
 TAG_PATTERN = re.compile(rf"\[\[\s*({_COMPONENT}(?:\s*,\s*{_COMPONENT})*)\s*\]\]")
 TAG_OPENING = "[["
 TAG_CLOSING = "]]"
-MAX_TAG_LENGTH = 480
+# Cabe la etiqueta más larga, la del correo, que lleva lo que pedí con sus detalles.
+MAX_TAG_LENGTH = 1280
 
 
 def parse_blend(body: str) -> EmotionBlend | None:
@@ -71,7 +73,7 @@ def strip_tags(text: str) -> str:
 
 
 class EmotionTagFilter:
-    """Separa `[[emoción]]`, `[[photo]]`, `[[forget]]`, `[[search: ...]]` y `[[write: ...]]`, aunque lleguen en varios tokens."""
+    """Separa `[[emoción]]`, `[[photo]]`, `[[forget]]`, `[[search: ...]]`, `[[write: ...]]` y `[[email: ...]]`, aunque lleguen en varios tokens."""
 
     def __init__(self) -> None:
         """Inicia sin texto pendiente."""
@@ -127,6 +129,12 @@ class EmotionTagFilter:
             if write:
                 result.write_instructions = result.write_instructions or write.group(1)
                 self.pending = self.pending[write.end() :]
+                continue
+
+            email = EMAIL_PATTERN.match(self.pending)
+            if email:
+                result.email_request = result.email_request or email.group(1)
+                self.pending = self.pending[email.end() :]
                 continue
 
             match = TAG_PATTERN.match(self.pending)

@@ -10,7 +10,7 @@ from services.agents.llms_service import LLMService
 from services.context.emotional_state_service import EmotionalStateService
 from services.context.memory_store import MemoryStore
 from services.context.obsidian_vault import ObsidianVault
-from services.context.vector_index import VectorIndex
+from services.context.search_index import SearchIndex
 from services.schemas import (
     BrainEvent,
     BrainLink,
@@ -127,7 +127,7 @@ class MemoryService:
     def __init__(
         self,
         store: MemoryStore,
-        index: VectorIndex,
+        index: SearchIndex,
         llm: LLMService,
         emotional_state: EmotionalStateService,
     ) -> None:
@@ -163,7 +163,7 @@ class MemoryService:
                     return
                 await asyncio.sleep(INDEX_RETRY_SECONDS)
             else:
-                print("[Memory] search index ready", flush=True)
+                print("[Memory] search index ready" if self.index.is_ready else "[Memory] search by meaning is off", flush=True)
                 await self.publish()
                 return
 

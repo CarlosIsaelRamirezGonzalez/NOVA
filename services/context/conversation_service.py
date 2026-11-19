@@ -4,7 +4,7 @@ from services.context.memory_store import MemoryStore
 from services.schemas import ChatMessage, ChatRequest, MessageRole
 
 # El modelo solo recibe lo reciente: con todo el historial, cada mensaje costaría más que el anterior.
-MAX_CONTEXT_MESSAGES = 40
+MAX_CONTEXT_MESSAGES = 24
 
 
 class ConversationService:

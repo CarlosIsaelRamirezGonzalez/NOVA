@@ -122,3 +122,6 @@ Thumbs.db
 secrets.json
 credentials.json
 token.json
+.playwright-mcp/
+.vercel
+.env*

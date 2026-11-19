@@ -4,19 +4,21 @@ import { useEffect, useId, useState } from 'react'
 import type { Usage, UsageDay, UsagePurpose } from '../hooks/useNova'
 
 /** Serie de la gráfica: cada una conserva su color aunque otra esté en cero. */
-type Series = { key: 'conversation' | 'memory' | 'search'; label: string; color: string }
+type Series = { key: 'conversation' | 'memory' | 'search' | 'report'; label: string; color: string }
 
 // Colores categóricos validados para fondo oscuro, en orden fijo.
 const SERIES: Series[] = [
   { key: 'conversation', label: 'Conversación', color: '#3987e5' },
   { key: 'memory', label: 'Recuerdos', color: '#d95926' },
   { key: 'search', label: 'Búsquedas', color: '#199e70' },
+  { key: 'report', label: 'Reportes', color: '#c98500' },
 ]
 
 const PURPOSE_LABELS: Record<UsagePurpose, string> = {
   conversation: 'Conversación',
   memory: 'Recuerdos',
   search: 'Búsquedas',
+  report: 'Reportes por correo',
   voice: 'Voz (ElevenLabs)',
 }
 

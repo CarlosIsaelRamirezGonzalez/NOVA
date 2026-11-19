@@ -421,13 +421,39 @@ function keepOnDisplay() {
   )
 }
 
-/** Muestra la ventana sin quitar el foco. Reafirma su nivel: al despertar la Mac, macOS puede perderlo. */
+/**
+ * Anota en un archivo cómo quedó la ventana: macOS no avisa cuando la deja fuera de la vista.
+ *
+ * @param {string} moment - Cuándo se anota.
+ */
+function logWindowState(moment) {
+  const [x, y] = widget.getPosition()
+  const line = `${new Date().toISOString()} ${moment} visible=${widget.isVisible()} todos_los_escritorios=${widget.isVisibleOnAllWorkspaces()} x=${x} y=${y}\n`
+  fs.appendFile(path.join(ROOT, 'data', 'desktop-window.log'), line, { mode: 0o600 }, () => {})
+}
+
+/** Muestra la ventana sin quitar el foco, en el escritorio donde estés, y encima de las demás. */
 function presentWidget() {
   keepOnDisplay()
-  widget.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
+  // macOS puede amarrarla a un escritorio: entonces se movía, pero no se veía en el tuyo.
+  if (!widget.isVisibleOnAllWorkspaces()) {
+    logWindowState('estaba amarrada a un escritorio')
+    joinAllSpaces()
+  }
   widget.setAlwaysOnTop(true, 'floating')
   widget.showInactive()
   widget.moveTop()
+  logWindowState('aparece')
+}
+
+/**
+ * Vuelve a pedir que se vea en todos los escritorios, también sobre apps en pantalla completa.
+ *
+ * No se hace cada vez que aparece: pedirlo sin cambiar el tipo de proceso la dejaba fuera de las
+ * apps en pantalla completa, y la app creía que se veía cuando no.
+ */
+function joinAllSpaces() {
+  widget.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 }
 
 /** Enciende o apaga el arranque de Nova al iniciar sesión, con un agente de tu usuario. */
@@ -596,7 +622,9 @@ if (!app.requestSingleInstanceLock()) {
 
     // Al despertar la Mac o cambiar de monitor, si debe verse, se vuelve a colocar.
     const refreshWidget = () => {
-      if (widget?.isVisible()) presentWidget()
+      if (!widget) return
+      joinAllSpaces()
+      if (widget.isVisible()) presentWidget()
     }
     powerMonitor.on('resume', refreshWidget)
     powerMonitor.on('unlock-screen', refreshWidget)

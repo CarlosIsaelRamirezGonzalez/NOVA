@@ -2,6 +2,68 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## Sin publicar · 17 de noviembre de 2026 · Nova en la web
+- Nova está al tanto de mi entorno. Mira por su cuenta cuando oye una voz que no es la mía, cuando oye un ruido raro y cada 20 minutos con el micrófono encendido.
+- También decide sola cuándo mirar en la plática: si digo que no me siento bien con cómo me veo, si sueno mal, o si menciono a alguien que está conmigo. La cámara ya no espera a que diga "mira".
+- Los ruidos los reconoce CED-tiny (AudioSet, 527 sonidos) en la Mac, cada segundo y en unos 3 ms. Alertan: golpes, vidrios, choques, gritos, llanto, alarmas, sirenas, ladridos, la puerta y el timbre. Mientras Nova habla no escucha, para no oírse a sí misma.
+- Cada vistazo lo interpreta Haiku. Solo habla si importa: si me ve mal, oye algo roto, hay una emergencia o llegó alguien. Lo que vio queda como contexto unas horas, solo en memoria.
+- Siempre hace la animación de foto al mirar, aunque la cámara ya esté prendida. Esas fotos no se guardan ni aparecen en el chat.
+- Límites: un vistazo por minuto como máximo, uno cada 10 minutos por otra voz y uno cada 3 por ruido. Se reservan 10 fotos al día para cuando yo las pida; el límite diario sube a 60.
+- `NOVA_GLANCE_MINUTES` cambia la rutina (0 la apaga) y `NOVA_AMBIENT_CAMERA=false` apaga todo esto. Nuevo `scripts/download_sound_model.py`.
+- Nova manda reportes por correo: investigaciones, notas, resúmenes de lo que platicamos, planes y diagramas. Se le pide con la voz o escribiendo ("mándame por correo...").
+- Los escribe Claude Sonnet 5.5 en segundo plano, con búsqueda web y lectura de páginas; la plática sigue con Haiku. Si Sonnet declina, la API reintenta con otro modelo (`fallbacks: "default"`).
+- Los diagramas Mermaid se dibujan como imagen dentro de la Mac (`tools/mermaid`, mermaid-cli 12.2.0). Si uno no compila, Haiku lo corrige una vez; si aun así falla, va como texto.
+- El correo sale por el SMTP de Gmail con una contraseña de aplicación (`GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`). Lleva HTML con los diagramas, texto plano y el reporte en Markdown adjunto.
+- El destinatario sale de la configuración, nunca del modelo: una página o un mensaje no pueden hacer que Nova le escriba a otra persona.
+- La vista de gastos separa los reportes, con su propio color, y cobra cada llamada con el precio de su modelo.
+- En la Mac, Nova reconoce mi voz. Se le enseña diciendo "Nova, apréndete mi voz" y luego unas frases; no pasa por Claude, y lo que digo para enseñarle no se guarda.
+- Cada petición por voz se compara con mi huella (WeSpeaker ResNet34 vía sherpa-onnx, en la Mac). Si no soy yo, Nova responde, pero sin tratar a esa persona como si fuera yo ni contarle lo mío.
+- Umbral de 0.6: con voces sintéticas, la misma voz dio 0.88 a 0.96 y otras voces 0.38 a 0.76. Cada petición registra su parecido para ajustarlo con voces reales.
+- Corregido: "Aprenete mi voz", como lo escribió Whisper, no la ponía a aprender. Ahora acepta las variantes del verbo, pero no preguntas como "¿ya aprendiste mi voz?".
+- Nova ya no repite una preocupación o un consejo que ya dio, ni insiste en que coma o descanse si no lo menciono. Tampoco condiciona lo que pido a eso: había respondido "primero come algo, luego te veo al equipo".
+- Por voz, Nova solo me responde a mí. Lo que diga otra persona se ignora: ni se muestra, ni gasta un turno, ni llega a Claude. Escribiendo en el chat no cambia nada.
+- Una frase muy corta para reconocerme ("sí", "va") vale si me reconoció en los últimos dos minutos. Al decir solo "Nova", saluda a cualquiera; la petición siguiente ya se revisa.
+- La comparación quita los silencios antes y después de hablar. Con eso el umbral baja a 0.5: con mi voz real había dado 0.63 y 0.71, muy cerca de 0.6, y con el filtro me habría ignorado seguido.
+- Corregido: con el micrófono real me ignoró. El recorte de silencios se medía contra el pico de la frase y dejaba menos de 0.8 s de voz. Ahora se mide contra el ruido del cuarto, y si queda poco se compara el audio completo. Cada comprobación registra cuántos segundos de voz usó.
+- "Olvida mi voz" borra la huella. Nuevo `scripts/download_voice_model.py`, que comprueba la huella del modelo.
+- Nova también corre en Vercel: `web/app.py` usa el mismo `NovaServer` y el mismo WebSocket que la Mac, con FastAPI.
+- La web pide una contraseña. El navegador recibe una cookie firmada que no contiene ningún secreto, y el WebSocket solo acepta conexiones de la propia página.
+- En la web no hay micrófono del servidor, escritorio, caras ni búsqueda por significado. Se oye con el dictado del navegador, y la interfaz oculta lo que no aplica.
+- La memoria en la web se baja de Turso al conectarse y se sube al terminar cada turno.
+- `server.py` carga Vosk, Whisper, InsightFace, Qdrant y CoreGraphics solo si los usa. La Mac funciona igual que antes.
+- Nuevos `pyproject.toml`, `vercel.json` y `.vercelignore`. Nada de `.env` ni de `data/` se sube a Vercel.
+- Nuevo documento `docs/Funcionamiento de Nova.md`: qué herramientas usa Nova, para qué sirve cada una, los mensajes del WebSocket, el recorrido de un turno por voz, la memoria y qué sale de la Mac.
+
+## v0.21.6 · 8 de noviembre de 2026 · Voz nueva
+- La voz de Nova pasa a Betty: juvenil y de caricatura. La anterior sonaba demasiado sensual.
+- Habla más pareja y con menos estilo (estabilidad 0.6, estilo 0.1).
+- Las otras voces que se probaron, entre ellas una robótica, quedan anotadas en `tts_service.py` para cambiar con `ELEVENLABS_VOICE_ID`.
+- Los saludos guardados se generan de nuevo con la voz nueva.
+
+## v0.21.5 · 7 de noviembre de 2026 · Menos platicadora
+- Respuestas de una o dos frases, sin consejos extra, sin ofrecer más ayuda y sin preguntar al final si no hace falta.
+- Solo se extiende si pido una explicación, pasos, un plan o código.
+- Recibe los últimos 24 mensajes en vez de 40: cada llamada cuesta menos, y lo de antes sigue en su memoria.
+
+## v0.21.4 · 7 de noviembre de 2026 · Sin mi nombre a cada rato
+- Mi nombre como muletilla ("Ay, Carlos", "Gracias, Carlos", "Carlos, mira") se quita en el código: ni se oye ni se ve. En mi plática real aparecía en 18 de las últimas 30 respuestas.
+- Las respuestas viejas se le muestran sin esos vocativos, para que deje de imitarlos.
+- El saludo ya no dice mi nombre: "Hola, ¿cómo te puedo ayudar?".
+
+## v0.21.3 · 7 de noviembre de 2026 · Se ve sobre la pantalla completa
+- Corregido desde la v0.20.4: con otra app en pantalla completa, Nova se movía y hablaba, pero macOS no la dibujaba.
+- Si macOS la deja amarrada a un escritorio, se vuelve a pedir que se vea en todos antes de aparecer. Cada aparición queda anotada en `data/desktop-window.log`.
+
+## v0.21.2 · 7 de noviembre de 2026 · Whisper más fuerte
+- Whisper pasa de `base` a `small` (488 MB): en una prueba con voces y ruido entendió 51 de 84 órdenes, contra 43 de `base`.
+- Cada transcripción tarda unos 120 ms más. Si `small` no está descargado, se usa `base`.
+- "Mira" ya no va en las frases de ejemplo para Whisper: una vez lo inventó y habría encendido la cámara.
+- "Esto es todo" también cuenta como despedida.
+
+## v0.21.1 · 7 de noviembre de 2026 · Entiende "ya vete"
+- Corregido: Whisper confundía las órdenes cortas ("Beté", "Ya metes", "muévete" salía "muy bien"). Ahora se le dan de ejemplo.
+- La despedida se reconoce sin acentos y en cualquier parte de una frase corta, como "ya olviden, ya vete". Una pregunta nunca cuenta como despedida.
+
 ## v0.21.0 · 7 de noviembre de 2026 · Directa, con despedida y saludos variados
 - Respuestas más directas y simples: contesta en la primera frase, sin metáforas ni sermones.
 - Si me despido ("adiós", "ya vete", "es todo", "buenas noches"), se despide en una línea, se oculta y deja de escuchar la plática hasta que la vuelva a llamar.

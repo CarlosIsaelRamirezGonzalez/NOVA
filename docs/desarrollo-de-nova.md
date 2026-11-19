@@ -57,6 +57,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 | Vosk con palabras parecidas para "Oye Nova" | Solo la frase | Solo la frase se activaba por error casi siempre |
 | Whisper local para transcribir | Servicio de pago | Sin costo y sin mandar audio a internet |
 | Electron | Tauri | Sin instalar Rust, y usa el mismo Chromium donde ya se probó la animación |
+| Voz juvenil y de caricatura (Betty) | La voz cálida de antes | La anterior sonaba sensual; Nova es un robot pequeño. Se eligió escuchando siete muestras |
 | Teclear sin Enter, con reglas en el código | Confiar en lo que diga el prompt | Una instrucción se puede ignorar; un carácter que se quita antes de teclear, no |
 | Un redactor aparte, sin herramientas ni memoria | Darle la captura a Nova | Un mensaje en pantalla que intente darle órdenes solo puede cambiar el texto, que tú revisas |
 | InsightFace dentro de la Mac, sin su paquete de Python | Pedirle a Claude que identifique caras | Claude no identifica personas por su cara, y así la huella no sale del equipo |
@@ -89,6 +90,7 @@ que pueden requerir sus claves de entonces; para el video, conviene grabarlas ta
 - **La primera migración perdió recuerdos:** la comprobación por huellas lo detectó antes de usarla.
 - **Decía mi nombre a cada rato.** En una plática de 20 respuestas lo dijo 16 veces. Con reglas de estilo explícitas bajó a 0, sin perder la calidez.
 - **El botón que la dejaba sorda.** El micrófono se apagaba y Nova, oculta, no daba ninguna señal; ese botón se fue a la barra de menú.
+- **Dos copias, una memoria.** Al llevarla a la web salió que la Mac y la web no pueden escribir en la misma base a la vez: cada copia numera sus mensajes por su cuenta y al subirlos podrían pisarse. La web arrancó con su propia base.
 - **Se quedaba "sorda" al llamarla.** Sí oía y respondía, pero sin sonido: al abrir con el micrófono ya encendido, nunca se preparaba la salida de audio. La lección: probar también la segunda apertura.
 
 ## Cómo seguir la documentación

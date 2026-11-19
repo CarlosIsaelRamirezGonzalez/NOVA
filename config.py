@@ -12,6 +12,23 @@ from services.voice.tts_service import DEFAULT_VOICE_ID
 DEFAULT_MEMORY_PATH = Path(__file__).with_name("data") / "nova.db"
 
 
+WHISPER_FOLDER = Path(__file__).with_name("data") / "models" / "whisper"
+# De mejor a más ligero: se usa el primero que esté descargado.
+WHISPER_MODELS = ("ggml-small.bin", "ggml-base.bin")
+
+
+def _whisper_model() -> Path:
+    """Elige el modelo de Whisper más fuerte que haya en el equipo.
+
+    Returns:
+        La ruta del modelo; si no hay ninguno, la del más ligero, para que el error lo diga.
+    """
+    for name in WHISPER_MODELS:
+        if (WHISPER_FOLDER / name).exists():
+            return WHISPER_FOLDER / name
+    return WHISPER_FOLDER / WHISPER_MODELS[-1]
+
+
 class Config(BaseSettings):
     """Variables de entorno que necesita Nova.
 
@@ -28,6 +45,14 @@ class Config(BaseSettings):
         wake_model_path: Modelo de Vosk que detecta "Oye Nova".
         whisper_model_path: Modelo de Whisper que transcribe las peticiones.
         vault_path: Bóveda de Obsidian que se genera desde la memoria.
+        nova_web_password: Contraseña de la versión web; en la Mac no se usa.
+        nova_session_secret: Clave con la que la versión web firma la sesión del navegador.
+        gmail_address: Cuenta de Gmail desde la que Nova manda los reportes.
+        gmail_app_password: Contraseña de aplicación de esa cuenta; no es la contraseña normal.
+        nova_email_to: A quién llegan los reportes; si falta, a la misma cuenta. Nunca lo decide
+            el modelo.
+        nova_ambient_camera: Si Nova mira por su cuenta al oír otra voz, un ruido raro o de rutina.
+        nova_glance_minutes: Cada cuánto da un vistazo de rutina; 0 lo apaga.
     """
 
     # `hide_input_in_errors` evita que un error de validación imprima las claves.
@@ -48,8 +73,15 @@ class Config(BaseSettings):
     vector_path: Path = Path(__file__).with_name("data") / "qdrant"
     models_path: Path = Path(__file__).with_name("data") / "models"
     wake_model_path: Path = Path(__file__).with_name("data") / "models" / "vosk-model-small-es-0.42"
-    whisper_model_path: Path = Path(__file__).with_name("data") / "models" / "whisper" / "ggml-base.bin"
+    whisper_model_path: Path = Field(default_factory=lambda: _whisper_model())
     vault_path: Path = Path(__file__).with_name("data") / "obsidian"
+    nova_web_password: str = ""
+    nova_session_secret: str = ""
+    gmail_address: str = ""
+    gmail_app_password: str = ""
+    nova_email_to: str = ""
+    nova_ambient_camera: bool = True
+    nova_glance_minutes: int = Field(default=20, ge=0)
 
     @property
     def sync_settings(self) -> SyncSettings | None:

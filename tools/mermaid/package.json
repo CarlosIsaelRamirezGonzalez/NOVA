@@ -1,0 +1,8 @@
+{
+  "name": "nova-mermaid",
+  "private": true,
+  "description": "Dibuja los diagramas de los reportes por correo de Nova, dentro de la Mac.",
+  "dependencies": {
+    "@mermaid-js/mermaid-cli": "12.2.0"
+  }
+}

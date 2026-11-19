@@ -1,6 +1,7 @@
 """Escucha cuando llaman a Nova con el micrófono y transcribe lo que pido, todo dentro del equipo.
 
-El audio nunca sale de la computadora ni se guarda: solo el texto transcrito llega al modelo.
+El audio nunca sale de la computadora ni se guarda: solo el texto transcrito llega al modelo. El
+audio de cada petición se entrega junto con el texto, en memoria, para saber quién habló.
 """
 
 import json
@@ -10,12 +11,15 @@ import threading
 import traceback
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import sounddevice
 import vosk
 from pywhispercpp.model import Model as WhisperModel
+
+if TYPE_CHECKING:
+    from services.voice.sound_event_service import SoundEventService
 
 SAMPLE_RATE = 16000
 BYTES_PER_SECOND = SAMPLE_RATE * 2
@@ -45,7 +49,12 @@ MIN_SPEECH_LEVEL = 300.0
 NOISE_ADAPTATION = 0.05
 
 # Whisper reconoce mejor el nombre si se lo anticipan.
-WHISPER_HINT = "Conversación con Nova, una asistente mexicana."
+# Con las órdenes de ejemplo, Whisper deja de confundirlas: sin ellas, "muévete" salía "muy bien".
+# "Mira" no va: una vez lo inventó donde no se dijo, y encendería la cámara sin que lo pida.
+WHISPER_HINT = (
+    "Conversación con Nova, una asistente mexicana. Frases comunes: Nova, ya vete. Ya es todo. "
+    "Adiós. Nos vemos. Muévete. Quédate quieta. Desaparece."
+)
 # Whisper inventa estas frases cuando en realidad no se dijo nada.
 PHANTOM_PHRASES = ("gracias por ver", "suscríbete", "subtítulos", "amara.org", "[música]", "(música)")
 # Whisper escribe "Nova" de varias formas; se quita la frase del inicio para quedarse con la petición.
@@ -58,7 +67,7 @@ CLEAR_WAKE_IN_TEXT = re.compile(r"^\W*(?:oye\b[\s,]*)?nova\b[\s.,:;!?¡¿-]*", r
 
 ListenState = Literal["off", "loading", "waiting", "hearing", "conversing", "transcribing", "error"]
 StateHandler = Callable[[ListenState], None]
-TextHandler = Callable[[str], None]
+TextHandler = Callable[[str, np.ndarray], None]
 WakeHandler = Callable[[], None]
 
 
@@ -109,7 +118,7 @@ class ListeningService:
             wake_model_path: Carpeta del modelo de Vosk.
             whisper_model_path: Archivo del modelo de Whisper.
             on_state: Recibe cada cambio de estado, desde otro hilo.
-            on_text: Recibe cada petición transcrita, desde otro hilo.
+            on_text: Recibe cada petición transcrita y su audio, desde otro hilo.
             on_wake: Avisa que la llamaron sin pedir nada más, desde otro hilo.
         """
         self.wake_model_path = wake_model_path
@@ -126,6 +135,8 @@ class ListeningService:
         self.conversation_pending = False
         self.silence_limit = NO_SPEECH_TIMEOUT_SECONDS
         self.noise_level = MIN_SPEECH_LEVEL / NOISE_MARGIN
+        # Reconoce golpes, alarmas o gritos en el mismo audio; lo conecta el servidor.
+        self.sounds: "SoundEventService | None" = None
         self._reset()
 
     def _reset(self) -> None:
@@ -173,6 +184,10 @@ class ListeningService:
             self.worker.join(timeout=5)
         self.worker = None
 
+    def start_conversation(self) -> None:
+        """Deja que le contesten sin llamarla, después de que habló por su cuenta."""
+        self.conversation_pending = True
+
     def end_conversation(self) -> None:
         """Deja de escuchar la plática: hasta que la vuelvan a llamar, solo espera su nombre."""
         self.conversation_pending = False
@@ -194,6 +209,7 @@ class ListeningService:
         Args:
             pcm: Audio de 16 kHz, mono, en enteros de 16 bits.
         """
+        self._listen_for_sounds(pcm)
         if not self.gate_open or self.state == "transcribing":
             # Lo que se oyó mientras Nova hablaba no debe contar como parte de la petición.
             if self.state in ("hearing", "conversing", "waiting"):
@@ -214,6 +230,26 @@ class ListeningService:
             self._hear_command(pcm)
         else:
             self._wait_for_wake(pcm)
+
+    def _listen_for_sounds(self, pcm: bytes) -> None:
+        """Pasa el audio al reconocedor de sonidos, salvo mientras Nova habla.
+
+        Un fallo aquí nunca debe dejar a Nova sorda: solo se registra.
+
+        Args:
+            pcm: Bloque de audio.
+        """
+        if self.sounds is None:
+            return
+        try:
+            if self.gate_open:
+                self.sounds.feed(pcm)
+            else:
+                # Su propia voz y lo que suena por las bocinas no cuentan.
+                self.sounds.reset()
+        except Exception:
+            traceback.print_exc()
+            self.sounds = None
 
     def _wait_for_wake(self, pcm: bytes) -> None:
         """Busca la frase en el audio.
@@ -349,7 +385,7 @@ class ListeningService:
             print("[Listen] nothing clear was said", flush=True)
             return
         self.conversation_pending = True
-        self.on_text(text)
+        self.on_text(text, samples)
 
     def _run(self) -> None:
         """Abre el micrófono y procesa su audio hasta que se apague."""

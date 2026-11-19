@@ -1,0 +1,24 @@
+# Lo que nunca se sube a Vercel.
+
+# Claves: en Vercel viven como variables de entorno, nunca como archivo.
+.env
+.env.*
+
+# Conversaciones, memoria, caras y modelos locales (unos 900 MB).
+data/
+*.db
+*.sqlite3
+
+# Solo sirven en la Mac.
+desktop/
+tmp/
+tools/
+.venv/
+venv/
+requirements.txt
+
+# Se reconstruyen en el despliegue.
+**/node_modules
+frontend/dist
+**/__pycache__
+.playwright-mcp/

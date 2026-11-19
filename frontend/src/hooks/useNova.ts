@@ -23,7 +23,7 @@ export type Brain = {
 }
 
 /** Para qué fue una llamada a una API. */
-export type UsagePurpose = 'conversation' | 'memory' | 'search' | 'voice'
+export type UsagePurpose = 'conversation' | 'memory' | 'search' | 'report' | 'voice'
 
 /** Gasto de un día, para la gráfica. */
 export type UsageDay = {
@@ -31,6 +31,7 @@ export type UsageDay = {
   conversation: number
   memory: number
   search: number
+  report: number
 }
 
 /** Lo que muestra la vista de gastos. */
@@ -113,11 +114,17 @@ export type VisualProfile = {
   face_enrolled: boolean
 }
 
+/** Qué puede hacer el servidor: la versión web no tiene micrófono propio, escritorio ni caras. */
+export type Capabilities = { microphone: boolean; desktop: boolean; faces: boolean }
+
 /** Eventos JSON que envía el backend; el audio llega aparte, como binario. */
 type ServerEvent =
+  | ({ type: 'capabilities' } & Capabilities)
+  | { type: 'email_done'; sent: boolean; subject: string; message: string }
   | { type: 'token'; text: string }
   | { type: 'emotion'; components: { name: string; intensity: number }[] }
-  | { type: 'photo_request'; request_id: string; remaining: number }
+  | { type: 'photo_request'; request_id: string; remaining: number; ambient: boolean }
+  | { type: 'proactive' }
   | { type: 'search_start'; query: string }
   | { type: 'search_done'; sources: string[] }
   | { type: 'move'; place: string }
@@ -137,6 +144,8 @@ type ServerEvent =
   | { type: 'error'; message: string }
 
 const RECONNECT_MS = 1500
+// El servidor web cierra con este código si la sesión venció: hay que volver a pedir la contraseña.
+const UNAUTHORIZED_CLOSE_CODE = 4401
 
 /** Cómo se registra cada gesto en el chat. */
 const GESTURE_LABELS: Record<Gesture, string> = {
@@ -169,6 +178,8 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
   const [visualProfile, setVisualProfile] = useState<VisualProfile | null>(null)
   const [listenEnabled, setListenEnabled] = useState(readListenPreference)
   const [listenState, setListenState] = useState<ListenState>('off')
+  // Hasta que el servidor lo diga, no se muestra nada que quizá no pueda hacer.
+  const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
   const latestListenEnabled = useRef(listenEnabled)
   // La compu aparece al buscar y se queda mientras Nova te cuenta lo que encontró.
   const [webSearch, setWebSearch] = useState<WebSearchStage>('none')
@@ -323,6 +334,10 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
         }
         const event = JSON.parse(data) as ServerEvent
 
+        if (event.type === 'capabilities') {
+          setCapabilities({ microphone: event.microphone, desktop: event.desktop, faces: event.faces })
+          return
+        }
         // El cerebro no depende del turno en curso, ni siquiera si se acaba de interrumpir.
         if (event.type === 'brain') {
           setBrain({ memories: event.memories, links: event.links, mood: event.mood })
@@ -347,6 +362,13 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
           setGreetCount((count) => count + 1)
           return
         }
+        if (event.type === 'proactive') {
+          // Habla por su cuenta tras un vistazo: empieza un turno como si la hubieran llamado.
+          discarding.current = false
+          turnFinished.current = false
+          setPhase('thinking')
+          return
+        }
         if (event.type === 'heard') {
           // Lo que se dijo con la voz entra al chat como si se hubiera escrito.
           discarding.current = false
@@ -361,6 +383,11 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
         }
         if (event.type === 'usage') {
           setUsage(event)
+          return
+        }
+        // Un reporte termina minutos después de pedirlo, en medio de otra plática.
+        if (event.type === 'email_done') {
+          setMessages((current) => [...current, { id: nextId.current++, role: 'nova', text: event.message }])
           return
         }
         if (event.type === 'recall') {
@@ -406,9 +433,13 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
             }
             if (dataUrl) {
               const photo = dataUrl
+              // Siempre hace su animación de tomar la foto, para que se note cada vez que mira.
               setPhotoCount((count) => count + 1)
               setPhotosRemaining(event.remaining - 1)
-              setMessages((current) => [...current, { id: nextId.current++, role: 'photo', text: photo }])
+              // Un vistazo que da por su cuenta no llena el chat de fotos.
+              if (!event.ambient) {
+                setMessages((current) => [...current, { id: nextId.current++, role: 'photo', text: photo }])
+              }
             }
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'photo', request_id: event.request_id, data_url: dataUrl }))
@@ -455,13 +486,18 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
       }
 
       // Reinicia el turno y programa la reconexión.
-      ws.onclose = () => {
+      ws.onclose = ({ code }) => {
         if (disposed) return
         setConnected(false)
         stopAudio()
         setWebSearch('none')
         turnFinished.current = true
         setPhase('idle')
+        // Sin sesión, reconectar no sirve: al recargar aparece la pantalla de acceso.
+        if (code === UNAUTHORIZED_CLOSE_CODE) {
+          location.reload()
+          return
+        }
         retry = setTimeout(connect, RECONNECT_MS)
       }
     }
@@ -688,5 +724,6 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     forgetMemory,
     unlockAudio,
     getLevel,
+    capabilities,
   }
 }
