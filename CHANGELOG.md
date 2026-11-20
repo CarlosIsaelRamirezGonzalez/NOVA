@@ -2,7 +2,7 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
-## Sin publicar · 17 de noviembre de 2026 · Nova en la web
+## v0.22.0 · 20 de noviembre de 2026 · Nova en la web
 - Nova está al tanto de mi entorno. Mira por su cuenta cuando oye una voz que no es la mía, cuando oye un ruido raro y cada 20 minutos con el micrófono encendido.
 - También decide sola cuándo mirar en la plática: si digo que no me siento bien con cómo me veo, si sueno mal, o si menciono a alguien que está conmigo. La cámara ya no espera a que diga "mira".
 - Los ruidos los reconoce CED-tiny (AudioSet, 527 sonidos) en la Mac, cada segundo y en unos 3 ms. Alertan: golpes, vidrios, choques, gritos, llanto, alarmas, sirenas, ladridos, la puerta y el timbre. Mientras Nova habla no escucha, para no oírse a sí misma.
