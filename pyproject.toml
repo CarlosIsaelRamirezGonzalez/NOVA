@@ -4,7 +4,7 @@
 
 [project]
 name = "nova"
-version = "0.21.6"
+version = "0.22.0"
 description = "Compañera de IA personal con voz, emociones y memoria."
 requires-python = ">=3.14"
 dependencies = [
