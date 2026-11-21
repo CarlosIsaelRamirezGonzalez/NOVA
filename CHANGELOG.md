@@ -2,6 +2,11 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## Sin publicar · 21 de noviembre de 2026 · Servidor web ordenado
+- `web/app.py` queda solo con las rutas. Lo demás se separa: `web/settings.py` (qué se enciende y los secretos), `web/session.py` (contraseña, cookie firmada y origen) y `web/socket_adapter.py` (el WebSocket con la forma que espera `NovaServer`).
+- La sesión ahora es una clase, `SessionGuard`, que deriva la clave de firma una sola vez en vez de pasar los secretos a cada función.
+- No cambia nada para quien la usa: misma contraseña, misma cookie y mismas rutas. Probado en local: login correcto e incorrecto, sesión, rechazo de otro origen y conexión del WebSocket.
+
 ## v0.22.0 · 20 de noviembre de 2026 · Nova en la web
 - Nova está al tanto de mi entorno. Mira por su cuenta cuando oye una voz que no es la mía, cuando oye un ruido raro y cada 20 minutos con el micrófono encendido.
 - También decide sola cuándo mirar en la plática: si digo que no me siento bien con cómo me veo, si sueno mal, o si menciono a alguien que está conmigo. La cámara ya no espera a que diga "mira".

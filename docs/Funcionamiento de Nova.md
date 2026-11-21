@@ -252,7 +252,7 @@ rodea:
 
 | Pieza | En la Mac | En la web |
 |---|---|---|
-| Servidor | aiohttp en `server.py` | FastAPI en `web/app.py`, como función de Vercel |
+| Servidor | aiohttp en `server.py` | FastAPI en `web/app.py` (rutas), con `web/settings.py`, `web/session.py` y `web/socket_adapter.py`, como función de Vercel |
 | Acceso | Solo desde `localhost` | Contraseña (`NOVA_WEB_PASSWORD`) y una cookie firmada, `HttpOnly` y `SameSite=Strict` |
 | Oír | Vosk y Whisper en la Mac | El dictado del navegador; en Chrome, el audio lo transcribe Google |
 | Memoria | SQLite con copia en Turso cada 30 s | Copia en `/tmp`: la baja de Turso al conectarse y la sube al terminar cada turno |
