@@ -35,12 +35,24 @@ from services.schemas import (
 BROWSER_MODEL = "claude-sonnet-5-5"
 MAX_OUTPUT_TOKENS = 4000
 EFFORT = "medium"
+# Sonnet 5.5 no acepta apagar el razonamiento con "disabled": esto es lo mínimo. Las notas que
+# escribe entre herramientas llegan como bloques de razonamiento firmados con todo lo anterior.
+NO_THINKING = {"type": "between_tools"}
+# Por esa firma, el historial no se toca nunca: antes se recortaban aquí las páginas viejas y la API
+# respondía 400. Ahora las borra el servidor, que sí puede hacerlo sin romper la firma.
+CONTEXT_EDITING_BETA = "context-management-2025-06-27"
+CONTEXT_EDITING = {
+    "edits": [
+        {
+            "type": "clear_tool_uses_20250919",
+            "trigger": {"type": "input_tokens", "value": 30000},
+            "keep": {"type": "tool_uses", "value": 2},
+        }
+    ]
+}
 MAX_STEPS = 30
 # Vercel cierra la función a los 5 minutos: la tarea termina antes, aunque quede a medias.
 MAX_TASK_SECONDS = 200
-# Solo las dos últimas páginas van completas; las anteriores ya se leyeron y solo encarecen.
-KEPT_OBSERVATIONS = 2
-OMITTED_OBSERVATION = "(Older page content omitted.)"
 NO_SUMMARY = "No pude terminar la tarea en el navegador."
 
 BrowserExecutor = Callable[[BrowserAction], Awaitable[BrowserResultRequest]]
@@ -181,23 +193,6 @@ def _observation_blocks(result: BrowserResultRequest) -> list[object]:
     return blocks
 
 
-def _forget_old_observations(messages: list[object]) -> None:
-    """Deja completas solo las últimas páginas leídas, para que cada paso no cueste más.
-
-    Args:
-        messages: Conversación con el agente; se modifica en su lugar.
-    """
-    results = [
-        block
-        for message in messages
-        if message["role"] == "user" and isinstance(message["content"], list)
-        for block in message["content"]
-        if block["type"] == "tool_result"
-    ]
-    for block in results[:-KEPT_OBSERVATIONS]:
-        block["content"] = OMITTED_OBSERVATION
-
-
 class BrowserAgent:
     """Recorre páginas en mi navegador hasta terminar una tarea."""
 
@@ -254,10 +249,15 @@ class BrowserAgent:
         last_text = ""
 
         for step in range(MAX_STEPS):
-            response = await self.client.messages.create(
+            response = await self.client.beta.messages.create(
                 model=BROWSER_MODEL,
                 max_tokens=MAX_OUTPUT_TOKENS,
+                thinking=NO_THINKING,
                 output_config={"effort": EFFORT},
+                betas=[CONTEXT_EDITING_BETA],
+                context_management=CONTEXT_EDITING,
+                # El historial solo crece, así que cada paso relee lo anterior desde el caché.
+                cache_control={"type": "ephemeral"},
                 tools=tools,
                 messages=messages,
             )
@@ -276,7 +276,6 @@ class BrowserAgent:
             messages.append({"role": "assistant", "content": response.content})
             results = [await self._act(tool_use, execute) for tool_use in tool_uses]
             messages.append({"role": "user", "content": results})
-            _forget_old_observations(messages)
 
         return BrowseResult(status="incomplete", summary=last_text or NO_SUMMARY)
 

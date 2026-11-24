@@ -303,6 +303,10 @@ Lo delicado se decide en el código de la extensión, no en el modelo:
 | Campo de contraseña o de tarjeta | Nunca escribe ahí |
 | Páginas de Chrome (`chrome://`, la tienda de extensiones) | Chrome no deja entrar; se le avisa al modelo |
 
+El agente nunca modifica su historial: Sonnet 5.5 firma su razonamiento con todo lo anterior, y
+cambiar un mensaje viejo hace que la API responda 400. Las páginas viejas las borra el servidor de
+Anthropic con la edición de contexto (`clear_tool_uses`), y así cada paso aprovecha el caché.
+
 Límites: la cámara y el dictado pueden no pedir permiso desde el panel lateral, y Vercel corta la
 conexión a los 5 minutos, así que una tarea en el navegador termina a los 200 segundos.
 

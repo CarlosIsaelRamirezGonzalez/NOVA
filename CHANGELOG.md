@@ -3,6 +3,10 @@
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
 ## Sin publicar · 23 de noviembre de 2026 · Nova en Chrome
+- Desde la extensión, Nova sabe en cada mensaje que vive junto a la página que tengo abierta: si hablo de alguien o algo en pantalla, o le pido responderle a alguien, usa el navegador sin que se lo diga explícitamente. Antes, "respóndele a Mia" lo tomaba como plática y hasta guardó a Mia como recuerdo.
+- Corregido: una tarea en el navegador fallaba al quinto paso con un error 400 de la API. Sonnet 5.5 firma su razonamiento con todo lo anterior, y recortar las páginas viejas rompía la firma. Ahora el historial solo crece, el servidor de Anthropic borra las páginas viejas (`clear_tool_uses`, a partir de 30 mil tokens) y el razonamiento va al mínimo (`between_tools`).
+- Como el historial ya no cambia, cada paso relee lo anterior desde el caché, a una décima parte del precio. Probado con Claude real en un chat simulado: abrió el chat de Mia en 3 pasos, entendió qué necesitaba y no envió nada.
+- La barra de menú de la app de Mac también muestra la cabeza de Nova a color, con fondo transparente (`desktop/trayIcon.png` y su versión `@2x`), en lugar de la "N" de `trayTemplate.png`.
 - La extensión ya tiene el icono de Nova en lugar de la "N" que ponía Chrome. Sale del recuadro "DETALLE" de la hoja del personaje, en 16, 32, 48 y 128 px (`extension/icons/`).
 - El servidor nuevo ya está en Vercel. Probado en producción: la extensión entra con la contraseña, recibe su token y se conecta al WebSocket.
 - Nova tiene extensión de Chrome: vive en el panel lateral, se conecta al servidor de Vercel y puede usar mi navegador cuando se lo pido ("búscame vuelos a Cancún", "¿qué dice esta página?", "llena esto con...").

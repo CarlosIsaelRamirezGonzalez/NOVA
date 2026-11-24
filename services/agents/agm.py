@@ -196,13 +196,24 @@ BROWSE_TOOL = ToolDefinition(
     name=BROWSE_TOOL_NAME,
     description=(
         "Use Carlos's Chrome browser for him: open pages, read what he has open, search a site, "
-        "compare, fill in a form, or click through something. Call this whenever he asks you to do "
-        "something in his browser or on a website (\"búscame vuelos en...\", \"abre mi correo y...\", "
+        "compare, fill in a form, reply to a message, or click through something. Call this whenever "
+        "he asks you to do something in his browser or on a website, or refers to anything on the "
+        "page he has open, even without saying \"browser\" (\"búscame vuelos en...\", \"abre mi correo y...\", "
         "\"¿qué dice esta página?\", \"llena esto con...\"). A stronger model does it step by step "
         "and he confirms before anything is bought, sent, published or deleted. Put in task "
         "everything he wants, with his details. Don't do the task yourself when you call it."
     ),
     parameters=BrowseArguments.model_json_schema(),
+)
+# Sin esto, Nova no sabía que estaba junto a mi página: "respóndele a Mia" lo tomaba como plática.
+BROWSER_CONTEXT = (
+    "Carlos is talking to you from your Chrome extension: you live in a side panel right next to "
+    "the web page he has open, and use_browser lets you see and use his browser. Whenever he "
+    "mentions this page or what he's looking at, a person, message, post, product or form on "
+    "screen, or asks you to reply to someone, read, open, search, fill in or click something, call "
+    "use_browser right away; don't ask him what the page says and don't guess. When he names "
+    "someone you don't know, assume they are on the page. You are already inside Chrome, so "
+    "\"abre Chrome\" just means use it."
 )
 BROWSE_PHRASES = ("Va, déjame ver.", "Ahorita lo hago.", "Dame un momento, ya voy.")
 BROWSE_NOTES: tuple[tuple[str, str], ...] = (
@@ -817,6 +828,7 @@ class AgentManager:
             self._voice_note(user_input, spoken, voice),
             self.visual.describe_for_model() if self.visual else None,
             self.surroundings.describe_for_model() if self.surroundings else None,
+            BROWSER_CONTEXT if browse and self.browser and not user_input.startswith("[") else None,
             TURN_REMINDER,
             FAREWELL_NOTE if self.said_goodbye else None,
         ]

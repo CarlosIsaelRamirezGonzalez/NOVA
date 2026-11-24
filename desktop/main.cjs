@@ -509,8 +509,9 @@ function buildTrayMenu(isMicrophoneOn) {
 
 /** Crea el icono de la barra de menú con sus opciones. */
 function createTray() {
-  const icon = nativeImage.createFromPath(path.join(__dirname, 'trayTemplate.png'))
-  icon.setTemplateImage(true)
+  // La cabeza de Nova a color, recortada de la hoja del personaje. No es plantilla: macOS la
+  // pintaría de un solo color. Electron toma solo `trayIcon@2x.png` en pantallas Retina.
+  const icon = nativeImage.createFromPath(path.join(__dirname, 'trayIcon.png'))
   tray = new Tray(icon)
   tray.setToolTip('Nova')
   tray.setContextMenu(buildTrayMenu(true))
