@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "predev": "node scripts/copy-vision-wasm.mjs",
     "prebuild": "node scripts/copy-vision-wasm.mjs",
-    "build:extension": "node scripts/copy-vision-wasm.mjs && tsc -b && vite build --outDir ../extension/dist --emptyOutDir && node scripts/build-extension.mjs"
+    "build:extension": "node scripts/copy-vision-wasm.mjs && tsc -b && vite build --outDir ../extension/dist --emptyOutDir && vite build --config vite.background.config.ts && node scripts/build-extension.mjs"
   },
   "dependencies": {
     "@fontsource/pixelify-sans": "^5.3.0",

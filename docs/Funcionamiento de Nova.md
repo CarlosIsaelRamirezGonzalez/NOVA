@@ -284,7 +284,8 @@ servidor de Vercel. Lo que la hace distinta es que puede usar el navegador.
 | Pieza | Dónde | Qué hace |
 |---|---|---|
 | Manifest | `extension/manifest.json` | Pide los permisos `sidePanel`, `tabs` y `scripting`, y acceso a todas las páginas |
-| Service worker | `extension/background.js` | Abre el panel al tocar el icono de Nova |
+| Service worker | `frontend/src/extension/background.ts` | Abre el panel al tocar el icono de Nova y le presta el navegador a la Nova de la Mac por `127.0.0.1:8787/browser`, aunque el panel esté cerrado |
+| Confirmación | `extension/confirm.html` | Ventanita que pregunta por un pago cuando la tarea viene de la Mac |
 | Iconos | `extension/icons/` | La cabeza de Nova recortada de la hoja del personaje, en 16, 32, 48 y 128 px |
 | Conexión | `frontend/src/nova/server.ts` | En la extensión, usa `https://nova-teal-two.vercel.app` y un token en lugar de la cookie |
 | Acciones | `frontend/src/browser/actions.ts` | Ejecuta lo que pide el servidor con `chrome.tabs` y `chrome.scripting`, y decide qué necesita confirmación |
@@ -302,6 +303,12 @@ Nova es autónoma en el navegador: termina la tarea completa, incluido enviar me
 | Enviar en un chat sin formulario (WhatsApp, Messenger) | Busca el botón de enviar junto al campo y le da clic; si no hay, simula Enter |
 | Campo de contraseña o de tarjeta | Nunca escribe ahí |
 | Páginas de Chrome (`chrome://`, la tienda de extensiones) | Chrome no deja entrar; se le avisa al modelo |
+
+**Desde la Mac.** El service worker se conecta al servidor de la Mac en `/browser`. El servidor solo
+acepta el origen `chrome-extension://gieebikbceifemmialncelfoblikepbp`, que es fijo porque el manifest
+trae la llave pública de la extensión. Por esa conexión solo viajan `browser_action` y
+`browser_result`. Si Chrome está conectado, la Nova de la Mac recibe la herramienta del navegador en
+cada turno, por voz o escrito, y trabaja en la ventana de Chrome que esté al frente.
 
 El agente nunca modifica su historial: Sonnet 5.5 firma su razonamiento con todo lo anterior, y
 cambiar un mensaje viejo hace que la API responda 400. Las páginas viejas las borra el servidor de

@@ -59,4 +59,8 @@ Antes de comprar, enviar, publicar o borrar te pregunta, y nunca escribe contras
 
 Tras cambiar el código, vuelve a compilar y presiona el botón de recargar de la extensión.
 
+Con la extensión instalada, la Nova de la Mac también usa Chrome: pídele por voz o en su ventana
+"abre YouTube y pon lofi" y lo hace en la ventana de Chrome que tengas al frente. Funciona mientras
+Chrome y la app de Mac estén abiertos; el panel puede estar cerrado.
+
 Nunca subas `.env` ni `data/`: contienen tus claves y tus conversaciones.

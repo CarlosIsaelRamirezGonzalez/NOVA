@@ -2,7 +2,8 @@
 import { cpSync } from 'node:fs'
 
 const extension = new URL('../../extension/', import.meta.url)
-for (const file of ['manifest.json', 'background.js']) {
+// El service worker (`background.js`) ya lo compiló Vite desde `src/extension/background.ts`.
+for (const file of ['manifest.json', 'confirm.html', 'confirm.js']) {
   cpSync(new URL(file, extension), new URL(`dist/${file}`, extension))
 }
 // Los iconos salen de la hoja del personaje (`Cara de nova.jpeg`, recuadro "DETALLE").

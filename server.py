@@ -17,7 +17,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Protocol
 
 from aiohttp import ClientSession, WSMsgType, web
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from config import Config
 from nova.prompts.nova_prompts import NOVA_AVATAR_INSTRUCTIONS, NOVA_SYSTEM_PROMPT
@@ -109,6 +109,10 @@ PHOTO_TIMEOUT_SECONDS = 30
 # Incluye el tiempo que tarde en confirmar una compra o un envío en la extensión.
 BROWSER_ACTION_TIMEOUT_SECONDS = 90
 BROWSER_NO_RESPONSE = "The browser did not respond. The extension may have been closed."
+# Solo la extensión de Nova puede prestarle el navegador a la Mac. Su ID sale de la llave pública
+# que trae `extension/manifest.json`, así que no cambia aunque se cargue desde otra carpeta.
+EXTENSION_ORIGIN = "chrome-extension://gieebikbceifemmialncelfoblikepbp"
+BROWSER_RESULT = TypeAdapter(BrowserResultRequest)
 GESTURE_COOLDOWN_SECONDS = 30
 HISTORY_MESSAGES_SHOWN = 60
 ALLOWED_ORIGINS = frozenset(
@@ -288,6 +292,8 @@ class NovaServer:
         self.pending_photo_id: str | None = None
         self.pending_photo: asyncio.Future[str | None] | None = None
         self.pending_browser: dict[str, asyncio.Future[BrowserResultRequest]] = {}
+        # Chrome conectado por la extensión: así la Nova de la Mac también puede usar el navegador.
+        self.browser_bridge: ClientSocket | None = None
         self.last_gesture_at: float | None = None
         self.listening: "ListeningService | None" = None
         if self.features.microphone:
@@ -442,6 +448,41 @@ class NovaServer:
         socket = web.WebSocketResponse(heartbeat=HEARTBEAT_SECONDS)
         await socket.prepare(request)
         await self.serve(socket, _text_messages(socket))
+        return socket
+
+    async def handle_browser_bridge(self, request: web.Request) -> web.WebSocketResponse:
+        """Atiende la conexión con la que la extensión de Chrome le presta el navegador a la Mac.
+
+        Por aquí solo viajan acciones del navegador y sus resultados: ni la plática, ni la memoria,
+        ni el audio.
+
+        Args:
+            request: Petición de apertura del WebSocket.
+
+        Returns:
+            La respuesta WebSocket ya cerrada.
+
+        Raises:
+            web.HTTPForbidden: Si no la abre la extensión de Nova.
+        """
+        if request.headers.get("Origin") != EXTENSION_ORIGIN:
+            raise web.HTTPForbidden(text="Origin not allowed")
+
+        socket = web.WebSocketResponse(heartbeat=HEARTBEAT_SECONDS)
+        await socket.prepare(request)
+        self.browser_bridge = socket
+        print("[Browser] Chrome connected", flush=True)
+        try:
+            async for data in _text_messages(socket):
+                # Lo único que se espera son resultados; el resto (como el pulso) se ignora.
+                try:
+                    self._resolve_browser_action(BROWSER_RESULT.validate_json(data))
+                except ValidationError:
+                    continue
+        finally:
+            if self.browser_bridge is socket:
+                self.browser_bridge = None
+                print("[Browser] Chrome disconnected", flush=True)
         return socket
 
     async def handle_session(self, _request: web.Request) -> web.Response:
@@ -1218,6 +1259,9 @@ class NovaServer:
             voice: Si la voz era la mía.
             browser_on: Si le hablo desde la extensión de Chrome, que puede usar el navegador.
         """
+        # Desde el panel, el navegador es el de esa misma conexión; si no, el que prestó Chrome.
+        bridge = self.browser_bridge if self.browser_bridge and not self.browser_bridge.closed else None
+        browser_socket = socket if browser_on else bridge
 
         async def send_token(token: str) -> None:
             """Envía un fragmento de texto.
@@ -1257,7 +1301,7 @@ class NovaServer:
             Returns:
                 Lo que pasó.
             """
-            return await self._request_browser_action(socket, action)
+            return await self._request_browser_action(browser_socket, action)
 
         async def send_search(
             event: SearchStartEvent
@@ -1292,7 +1336,8 @@ class NovaServer:
                     send_search,
                     spoken,
                     voice,
-                    run_browser_action if browser_on else None,
+                    run_browser_action if browser_socket else None,
+                    browse_from_panel=browser_on,
                 )
                 await self._send(socket, DoneEvent())
                 if self.features.serverless:
@@ -1325,6 +1370,7 @@ def create_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/ws", server.handle_websocket)
     app.router.add_get("/api/session", server.handle_session)
+    app.router.add_get("/browser", server.handle_browser_bridge)
 
     # Sirve la interfaz compilada para la app de escritorio; en desarrollo la sirve Vite.
     if FRONTEND_DIST.is_dir():

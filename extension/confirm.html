@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Nova necesita tu sí</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; padding: 20px; background: #0b0a24; color: #f3f3ff; font: 15px/1.4 system-ui, sans-serif; }
+      p { margin: 0 0 18px; }
+      .buttons { display: flex; gap: 10px; justify-content: flex-end; }
+      button { border-radius: 999px; padding: 8px 18px; font: inherit; cursor: pointer; }
+      #no { background: transparent; color: #f3f3ff; border: 1px solid #3a3870; }
+      #yes { background: #ff6b8a; color: #0b0a24; border: 0; font-weight: 600; }
+      button:focus-visible { outline: 2px solid #a9d6ff; outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <p id="question"></p>
+    <div class="buttons">
+      <button id="no" type="button">No</button>
+      <button id="yes" type="button">Sí, hazlo</button>
+    </div>
+    <script src="confirm.js"></script>
+  </body>
+</html>

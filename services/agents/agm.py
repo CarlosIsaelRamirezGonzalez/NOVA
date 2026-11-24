@@ -220,6 +220,15 @@ BROWSER_CONTEXT = (
     "and never tell the browser not to send. Only purchases and payments wait for his OK, and the "
     "browser asks him itself."
 )
+# En la Mac, el navegador llega por la extensión aunque yo no le hable desde ahí.
+BRIDGE_CONTEXT = (
+    "Carlos's Chrome is connected to you, so use_browser lets you use it for him from here: open "
+    "websites, read them, search, fill in forms, reply to messages. Whenever he asks you to open a "
+    "page, look something up on a site, or do something in his browser or on a website, call "
+    "use_browser right away. It works on the Chrome window he has in front. Be autonomous: when he "
+    "asks you to write or say something to someone, the task is to write it and send it; never tell "
+    "the browser not to send. Only purchases and payments wait for his OK, and Chrome asks him itself."
+)
 BROWSE_PHRASES = ("Va, déjame ver.", "Ahorita lo hago.", "Dame un momento, ya voy.")
 BROWSE_NOTES: tuple[tuple[str, str], ...] = (
     ("done", "You used Carlos's browser for: {task}. What happened: {summary}"),
@@ -789,6 +798,7 @@ class AgentManager:
         spoken: bool = False,
         voice: VoiceCheck | None = None,
         browse: BrowserExecutor | None = None,
+        browse_from_panel: bool = False,
     ) -> str:
         """Ejecuta un turno y entrega texto y audio mientras el modelo sigue escribiendo.
 
@@ -806,7 +816,9 @@ class AgentManager:
             on_search: Recibe el inicio y el final de una búsqueda o de una escritura.
             spoken: Si lo dije en voz alta con el micrófono de la Mac.
             voice: Si la voz era la mía; `None` si no conoce mi voz o la frase fue muy corta.
-            browse: Ejecuta acciones en mi navegador; solo existe si le hablo desde la extensión.
+            browse: Ejecuta acciones en mi navegador; existe si le hablo desde la extensión o si
+                Chrome está conectado a la Mac.
+            browse_from_panel: Si le hablo desde el panel de la extensión, junto a mi página.
 
         Returns:
             La última respuesta completa, incluidas las etiquetas de emoción.
@@ -833,7 +845,7 @@ class AgentManager:
             self._voice_note(user_input, spoken, voice),
             self.visual.describe_for_model() if self.visual else None,
             self.surroundings.describe_for_model() if self.surroundings else None,
-            BROWSER_CONTEXT if browse and self.browser and not user_input.startswith("[") else None,
+            self._browser_note(user_input, browse, browse_from_panel),
             TURN_REMINDER,
             FAREWELL_NOTE if self.said_goodbye else None,
         ]
@@ -1226,6 +1238,23 @@ class AgentManager:
                 await on_write(WriteDoneEvent())
         print(f"[Write] {result.status}", flush=True)
         return result
+
+    def _browser_note(
+        self, user_input: str, browse: BrowserExecutor | None, from_panel: bool
+    ) -> str | None:
+        """Le dice al modelo si puede usar mi navegador y desde dónde le hablo.
+
+        Args:
+            user_input: Mensaje del usuario; un gesto entre corchetes no pide nada.
+            browse: Ejecuta acciones en mi navegador, si hay alguno disponible.
+            from_panel: Si le hablo desde el panel de la extensión.
+
+        Returns:
+            La nota, o `None` si no hay navegador.
+        """
+        if not browse or not self.browser or user_input.startswith("["):
+            return None
+        return BROWSER_CONTEXT if from_panel else BRIDGE_CONTEXT
 
     async def _browse(
         self, task: str, browse: BrowserExecutor, on_browse: SearchHandler | None

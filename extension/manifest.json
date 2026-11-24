@@ -3,17 +3,20 @@
   "name": "Nova",
   "version": "0.23.0",
   "description": "Nova en el panel lateral de Chrome: platica contigo y usa tu navegador cuando se lo pides.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtZEzWIRznWZr6Fc1HchGPmna37G7wNaR9zfjw0WfdvflTxfM7FVFxMpS6upOVO305iyLJuQkKoDM7WtzxjyT7eu6ZyDid0/KYBm58e7Bp6bNV/XXMJFmYJH+0PRiuqAXePQEnTvKwEuFwzCfDVJd1Djso0wwd9aDp9GK0wYqbmZim7o9/phQ6S2BeEkgZT4v8i/JEm3o8ngjJVyo2sEwBofcyzZ+gWESYpp7V1vFX+nDrv20MvHtYc4mUh8gCftz7iSF3G5wEQWtLGPg0f5NaSg/O29b7av8I7WAqWPcyuhxhfy3aFhNB8J0GUFazDrtJousLigVFkztDcFFEiE11QIDAQAB",
   "minimum_chrome_version": "116",
   "permissions": [
     "sidePanel",
     "tabs",
-    "scripting"
+    "scripting",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "side_panel": {
     "default_path": "index.html"

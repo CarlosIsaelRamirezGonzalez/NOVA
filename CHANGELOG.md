@@ -3,6 +3,11 @@
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
 ## Sin publicar · 23 de noviembre de 2026 · Nova en Chrome
+- La Nova de la Mac también usa Chrome: si le digo, por voz o en su ventana, "abre YouTube y pon lofi" o "escríbele a Mia que…", lo hace en la ventana de Chrome que tengo al frente y Chrome pasa al frente para que la vea.
+- Funciona con un puente: el service worker de la extensión se conecta a `127.0.0.1:8787/browser` aunque el panel esté cerrado. Por ahí solo viajan acciones del navegador y sus resultados; ni la plática, ni la memoria, ni el audio. Si Nova no está abierta en la Mac, lo reintenta cada minuto.
+- El servidor de la Mac solo acepta el puente de esta extensión. Por eso la extensión trae una llave pública en el manifest, que fija su ID (`gieebikbceifemmialncelfoblikepbp`) aunque se cargue desde otra carpeta.
+- Si una tarea pedida desde la Mac llega a un pago, Chrome pregunta en una ventanita, porque el panel puede estar cerrado.
+- El service worker ahora se escribe en TypeScript (`frontend/src/extension/background.ts`) y reusa el mismo código que da los clics. Probado: otra extensión recibe 403, y la de Nova recibe la acción y devuelve el resultado.
 - Nova es autónoma en el navegador: si le digo "dile a Mia que…" o "respóndele", lo escribe en su chat y lo envía de una vez, sin pedirme permiso ni dejarlo en borrador. Antes le ordenaba al navegador "no lo envíes" y la extensión preguntaba por cualquier botón de enviar, publicar o borrar.
 - Ahora solo espera mi sí lo que cuesta dinero: comprar, pagar, suscribirse, transferir o donar. En contraseñas y tarjetas sigue sin escribir nunca.
 - Enviar en chats sin formulario, como WhatsApp, ya funciona: después de escribir, busca el botón de enviar junto al campo y le da clic, porque esos chats ignoran un Enter simulado. Probado en un chat de prueba en el navegador y con Claude real: lo escribió, lo envió y comprobó que salió, en 3 pasos.

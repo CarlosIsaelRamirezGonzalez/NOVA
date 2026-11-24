@@ -83,13 +83,16 @@ async function perform(action: BrowserAction, confirm: Confirm): Promise<Browser
   }
 }
 
+// La ventana de Chrome que tengo al frente: la del panel, o la última que usé si Nova actúa desde la Mac.
+const FRONT_WINDOW = { lastFocusedWindow: true, windowType: 'normal' } as const
+
 /**
- * La pestaña que se ve en la ventana donde está el panel.
+ * La pestaña que se ve en la ventana de Chrome que tengo al frente.
  *
  * @returns La pestaña activa.
  */
 async function activeTab(): Promise<chrome.tabs.Tab> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  const [tab] = await chrome.tabs.query({ active: true, ...FRONT_WINDOW })
   if (!tab?.id) throw new Error('There is no open tab in this window.')
   return tab
 }
@@ -181,7 +184,7 @@ async function readPage(tab: chrome.tabs.Tab): Promise<BrowserResult> {
  * @returns Una línea por pestaña.
  */
 async function listTabs(): Promise<BrowserResult> {
-  const tabs = await chrome.tabs.query({ currentWindow: true })
+  const tabs = await chrome.tabs.query(FRONT_WINDOW)
   const lines = tabs.map((tab) => `[${tab.id}]${tab.active ? ' (current)' : ''} ${tab.title ?? ''} — ${tab.url ?? ''}`)
   return { ok: true, text: lines.join('\n') }
 }
@@ -198,6 +201,15 @@ async function screenshot(tab: chrome.tabs.Tab): Promise<BrowserResult> {
 }
 
 /**
+ * Pone Chrome al frente, para que se vea lo que hace Nova cuando se lo pido desde la Mac.
+ *
+ * @param tab - Pestaña donde está trabajando.
+ */
+async function bringToFront(tab: chrome.tabs.Tab): Promise<void> {
+  await chrome.windows.update(tab.windowId, { focused: true })
+}
+
+/**
  * Abre una dirección en la pestaña activa.
  *
  * @param url - Dirección.
@@ -206,6 +218,7 @@ async function screenshot(tab: chrome.tabs.Tab): Promise<BrowserResult> {
 async function navigate(url: string | null | undefined): Promise<BrowserResult> {
   const tab = await activeTab()
   await chrome.tabs.update(tab.id!, { url: webUrl(url) })
+  await bringToFront(tab)
   await waitForLoad(tab.id!)
   return readPage(await chrome.tabs.get(tab.id!))
 }
@@ -218,6 +231,7 @@ async function navigate(url: string | null | undefined): Promise<BrowserResult> 
  */
 async function openTab(url: string | null | undefined): Promise<BrowserResult> {
   const tab = await chrome.tabs.create({ url: webUrl(url), active: true })
+  await bringToFront(tab)
   await waitForLoad(tab.id!)
   return readPage(await chrome.tabs.get(tab.id!))
 }
