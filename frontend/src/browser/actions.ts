@@ -2,8 +2,9 @@
  * Ejecuta en Chrome las acciones que pide el servidor cuando Nova usa el navegador.
  *
  * Corre en el panel lateral de la extensión, que tiene acceso a `chrome.tabs` y
- * `chrome.scripting`. Aquí, y no en el modelo, se decide qué es delicado: comprar, enviar o borrar
- * siempre pide confirmación, y en contraseñas o tarjetas nunca se escribe.
+ * `chrome.scripting`. Nova es autónoma: envía, publica y borra si es parte de lo que le pedí. Aquí,
+ * y no en el modelo, se decide lo único que la frena: lo que cuesta dinero pide confirmación, y en
+ * contraseñas o tarjetas nunca se escribe.
  */
 
 import { checkElement, clickElement, scrollPage, snapshotPage, typeIntoElement } from './page'
@@ -258,7 +259,7 @@ async function click(ref: number | null | undefined, confirm: Confirm): Promise<
   const tab = await activeTab()
   const element = await inPage(tab, checkElement, ref)
   if (!element.found) throw new Error(`Element ${ref} is gone. Read the page again.`)
-  if (element.risky && !(await confirm(`Dar clic en «${element.label || 'ese botón'}»`))) {
+  if (element.costsMoney && !(await confirm(`Dar clic en «${element.label || 'ese botón'}»`))) {
     return { ok: false, text: DECLINED }
   }
   await inPage(tab, clickElement, ref)
@@ -288,9 +289,8 @@ async function typeText(
   if (element.secret) {
     return { ok: false, text: 'This is a password or card field. Carlos has to fill it in himself.' }
   }
-  // Una búsqueda se envía sin preguntar; un mensaje o un formulario, siempre se pregunta.
-  const needsConfirmation = submit && (element.risky || !element.search)
-  if (needsConfirmation && !(await confirm(`Escribir «${text.slice(0, 80)}» y enviarlo`))) {
+  // Enviar un mensaje o un formulario es parte de la tarea; solo un pago espera mi sí.
+  if (submit && element.costsMoney && !(await confirm(`Escribir «${text.slice(0, 80)}» y enviarlo`))) {
     return { ok: false, text: DECLINED }
   }
   if (!(await inPage(tab, typeIntoElement, ref, text, submit))) {

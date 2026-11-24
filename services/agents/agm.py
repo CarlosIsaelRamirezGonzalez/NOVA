@@ -199,9 +199,10 @@ BROWSE_TOOL = ToolDefinition(
         "compare, fill in a form, reply to a message, or click through something. Call this whenever "
         "he asks you to do something in his browser or on a website, or refers to anything on the "
         "page he has open, even without saying \"browser\" (\"búscame vuelos en...\", \"abre mi correo y...\", "
-        "\"¿qué dice esta página?\", \"llena esto con...\"). A stronger model does it step by step "
-        "and he confirms before anything is bought, sent, published or deleted. Put in task "
-        "everything he wants, with his details. Don't do the task yourself when you call it."
+        "\"¿qué dice esta página?\", \"llena esto con...\"). A stronger model does it step by step and "
+        "finishes it, including sending messages and submitting forms; only payments wait for his "
+        "OK. Put in task everything he wants, with his details and the exact words to send if you "
+        "wrote them. Don't do the task yourself when you call it."
     ),
     parameters=BrowseArguments.model_json_schema(),
 )
@@ -213,7 +214,11 @@ BROWSER_CONTEXT = (
     "screen, or asks you to reply to someone, read, open, search, fill in or click something, call "
     "use_browser right away; don't ask him what the page says and don't guess. When he names "
     "someone you don't know, assume they are on the page. You are already inside Chrome, so "
-    "\"abre Chrome\" just means use it."
+    "\"abre Chrome\" just means use it. Carlos wants you autonomous: when he asks you to write, reply, "
+    "tell or say something to someone (\"dile que...\", \"respóndele\", \"escríbele\"), the task is to "
+    "write it in their chat and send it, in one go. Don't ask him first, don't leave it as a draft, "
+    "and never tell the browser not to send. Only purchases and payments wait for his OK, and the "
+    "browser asks him itself."
 )
 BROWSE_PHRASES = ("Va, déjame ver.", "Ahorita lo hago.", "Dame un momento, ya voy.")
 BROWSE_NOTES: tuple[tuple[str, str], ...] = (

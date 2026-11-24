@@ -3,6 +3,9 @@
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
 ## Sin publicar · 23 de noviembre de 2026 · Nova en Chrome
+- Nova es autónoma en el navegador: si le digo "dile a Mia que…" o "respóndele", lo escribe en su chat y lo envía de una vez, sin pedirme permiso ni dejarlo en borrador. Antes le ordenaba al navegador "no lo envíes" y la extensión preguntaba por cualquier botón de enviar, publicar o borrar.
+- Ahora solo espera mi sí lo que cuesta dinero: comprar, pagar, suscribirse, transferir o donar. En contraseñas y tarjetas sigue sin escribir nunca.
+- Enviar en chats sin formulario, como WhatsApp, ya funciona: después de escribir, busca el botón de enviar junto al campo y le da clic, porque esos chats ignoran un Enter simulado. Probado en un chat de prueba en el navegador y con Claude real: lo escribió, lo envió y comprobó que salió, en 3 pasos.
 - Desde la extensión, Nova sabe en cada mensaje que vive junto a la página que tengo abierta: si hablo de alguien o algo en pantalla, o le pido responderle a alguien, usa el navegador sin que se lo diga explícitamente. Antes, "respóndele a Mia" lo tomaba como plática y hasta guardó a Mia como recuerdo.
 - Corregido: una tarea en el navegador fallaba al quinto paso con un error 400 de la API. Sonnet 5.5 firma su razonamiento con todo lo anterior, y recortar las páginas viejas rompía la firma. Ahora el historial solo crece, el servidor de Anthropic borra las páginas viejas (`clear_tool_uses`, a partir de 30 mil tokens) y el razonamiento va al mínimo (`between_tools`).
 - Como el historial ya no cambia, cada paso relee lo anterior desde el caché, a una décima parte del precio. Probado con Claude real en un chat simulado: abrió el chat de Mia en 3 pasos, entendió qué necesitaba y no envió nada.

@@ -8,8 +8,8 @@
 /** Lo que se lee de una página para el modelo. */
 export type PageSnapshot = { title: string; url: string; text: string; elements: string }
 
-/** Lo que se sabe de un elemento antes de tocarlo. */
-export type ElementCheck = { found: boolean; label: string; risky: boolean; secret: boolean; search: boolean }
+/** Lo que se sabe de un elemento antes de tocarlo: `costsMoney` pide confirmación, `secret` se bloquea. */
+export type ElementCheck = { found: boolean; label: string; costsMoney: boolean; secret: boolean }
 
 /**
  * Lee la página y numera sus elementos con los que se puede interactuar.
@@ -76,17 +76,17 @@ export function snapshotPage(maxChars: number, maxElements: number): PageSnapsho
 }
 
 /**
- * Revisa un elemento antes de tocarlo: si existe, cómo se llama y si es delicado.
+ * Revisa un elemento antes de tocarlo: si existe, cómo se llama, si cuesta dinero y si es secreto.
  *
  * @param ref - Número que le dio la última lectura.
  * @returns Lo que se sabe del elemento.
  */
 export function checkElement(ref: number): ElementCheck {
-  // Comprar, pagar, enviar, publicar, borrar, confirmar…: siempre se le pregunta a Carlos.
-  const riskyWords =
-    /(compr|pag(a|o|ar)\b|checkout|buy|pay\b|order|pedido|ordenar|enviar|send|submit|publica|post\b|tweet|eliminar|borrar|delete|remove|quitar|confirm|transfer|suscrib|subscribe|reserv|book\b|instal|aceptar|accept|firmar|sign\b|donar|donate)/i
+  // Carlos quiere a Nova autónoma: solo lo que cuesta dinero espera su sí.
+  const moneyWords =
+    /(compr|pag(a|o|ar)\b|checkout|buy|purchase|pay\b|pagar|order now|place order|realizar pedido|hacer pedido|transfer|suscrib|subscribe|donar|donate|contratar|alquilar|rent\b)/i
   const element = document.querySelector(`[data-nova-ref="${ref}"]`)
-  if (!element) return { found: false, label: '', risky: false, secret: false, search: false }
+  if (!element) return { found: false, label: '', costsMoney: false, secret: false }
 
   const input = element as HTMLInputElement
   const label = (
@@ -96,20 +96,11 @@ export function checkElement(ref: number): ElementCheck {
     input.placeholder ||
     ''
   ).replace(/\s+/g, ' ').trim().slice(0, 80)
-  const isSubmit = (element instanceof HTMLButtonElement || element instanceof HTMLInputElement) && input.type === 'submit'
-  const formHasPassword = Boolean(element.closest('form')?.querySelector('input[type=password]'))
   // Contraseñas y tarjetas: Nova nunca escribe ahí.
   const secret =
     element instanceof HTMLInputElement &&
     (input.type === 'password' || /cc-|card|tarjeta|cvc|cvv/i.test(`${input.autocomplete} ${input.name}`))
-  // Un buscador se puede enviar sin preguntar; un chat o un formulario, no.
-  const role = element.getAttribute('role') ?? ''
-  const search =
-    input.type === 'search' ||
-    role === 'searchbox' ||
-    role === 'combobox' ||
-    /search|busca|query|^q$/i.test(`${input.name ?? ''} ${element.getAttribute('aria-label') ?? ''} ${input.placeholder ?? ''}`)
-  return { found: true, label, risky: riskyWords.test(label) || isSubmit || formHasPassword, secret, search }
+  return { found: true, label, costsMoney: moneyWords.test(label), secret }
 }
 
 /**
@@ -131,10 +122,10 @@ export function clickElement(ref: number): boolean {
  *
  * @param ref - Número que le dio la última lectura.
  * @param text - Lo que se escribe; reemplaza lo que hubiera.
- * @param submit - Si después se envía el formulario.
+ * @param submit - Si después se envía: el formulario, el botón de enviar de un chat o Enter.
  * @returns Si se encontró un campo donde escribir.
  */
-export function typeIntoElement(ref: number, text: string, submit: boolean): boolean {
+export async function typeIntoElement(ref: number, text: string, submit: boolean): Promise<boolean> {
   const element = document.querySelector<HTMLElement>(`[data-nova-ref="${ref}"]`)
   if (!element) return false
   element.scrollIntoView({ block: 'center' })
@@ -159,15 +150,33 @@ export function typeIntoElement(ref: number, text: string, submit: boolean): boo
   }
   element.dispatchEvent(new Event('input', { bubbles: true }))
   element.dispatchEvent(new Event('change', { bubbles: true }))
+  if (!submit) return true
 
-  if (submit) {
-    const form = element.closest('form')
-    if (form) form.requestSubmit()
-    else {
-      for (const type of ['keydown', 'keypress', 'keyup']) {
-        element.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }))
-      }
+  const form = element.closest('form')
+  if (form) {
+    form.requestSubmit()
+    return true
+  }
+
+  // Los chats (WhatsApp, Messenger, Instagram) no usan formulario y suelen ignorar un Enter
+  // simulado: se busca su botón de enviar cerca del campo, que aparece al escribir.
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  const sendLabel = /send|enviar|envía|mandar/i
+  let scope: HTMLElement | null = element
+  for (let depth = 0; scope && depth < 8; depth += 1) {
+    const button = [...scope.querySelectorAll<HTMLElement>('button, [role=button]')].find((candidate) =>
+      sendLabel.test(
+        `${candidate.getAttribute('aria-label') ?? ''} ${candidate.getAttribute('title') ?? ''} ${candidate.getAttribute('data-icon') ?? ''} ${candidate.getAttribute('data-testid') ?? ''} ${candidate.querySelector('[data-icon]')?.getAttribute('data-icon') ?? ''}`,
+      ),
+    )
+    if (button) {
+      button.click()
+      return true
     }
+    scope = scope.parentElement
+  }
+  for (const type of ['keydown', 'keypress', 'keyup']) {
+    element.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }))
   }
   return true
 }

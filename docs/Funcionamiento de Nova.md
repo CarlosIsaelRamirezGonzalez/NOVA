@@ -293,13 +293,13 @@ servidor de Vercel. Lo que la hace distinta es que puede usar el navegador.
 Al entrar, el servidor devuelve la sesión firmada como token. La extensión lo guarda y lo manda como
 primer mensaje del WebSocket; el servidor acepta el origen `chrome-extension://` solo así.
 
-Lo delicado se decide en el código de la extensión, no en el modelo:
+Nova es autónoma en el navegador: termina la tarea completa, incluido enviar mensajes y formularios. Lo único que la frena se decide en el código de la extensión, no en el modelo:
 
 | Caso | Qué hace |
 |---|---|
-| Botón que compra, paga, envía, publica, borra, confirma o entra con contraseña | Pregunta "Nova quiere: … ¿Sigue?" y espera |
-| Enviar texto en algo que no es un buscador, como un chat | Pregunta antes |
-| Enviar una búsqueda | Lo hace sin preguntar |
+| Algo que cuesta dinero: comprar, pagar, suscribirse, transferir, donar | Pregunta "Nova quiere: … ¿Sigue?" y espera |
+| Enviar un mensaje, publicar, borrar, llenar un formulario o buscar | Lo hace sin preguntar, si es parte de lo que le pediste |
+| Enviar en un chat sin formulario (WhatsApp, Messenger) | Busca el botón de enviar junto al campo y le da clic; si no hay, simula Enter |
 | Campo de contraseña o de tarjeta | Nunca escribe ahí |
 | Páginas de Chrome (`chrome://`, la tienda de extensiones) | Chrome no deja entrar; se le avisa al modelo |
 
