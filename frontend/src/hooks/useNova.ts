@@ -2,6 +2,8 @@
 
 import { takeOneShotPhoto } from './useCamera'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { runBrowserAction, type BrowserAction } from '../browser/actions'
+import { IS_EXTENSION, readToken, saveToken, socketUrl } from '../nova/server'
 import { EMOTIONS, type EmotionBlend, type EmotionComponent } from '../nova/emotions'
 import type { Gesture } from '../nova/gestures'
 
@@ -23,7 +25,7 @@ export type Brain = {
 }
 
 /** Para qué fue una llamada a una API. */
-export type UsagePurpose = 'conversation' | 'memory' | 'search' | 'report' | 'voice'
+export type UsagePurpose = 'conversation' | 'memory' | 'search' | 'report' | 'browser' | 'voice'
 
 /** Gasto de un día, para la gráfica. */
 export type UsageDay = {
@@ -32,6 +34,7 @@ export type UsageDay = {
   memory: number
   search: number
   report: number
+  browser: number
 }
 
 /** Lo que muestra la vista de gastos. */
@@ -82,7 +85,7 @@ export type Recall = {
 }
 
 /** En qué va una búsqueda en internet: buscando, o ya contando lo que encontró. */
-export type WebSearchStage = 'none' | 'searching' | 'reading' | 'writing'
+export type WebSearchStage = 'none' | 'searching' | 'reading' | 'writing' | 'browsing'
 
 /** Fase del turno de conversación. */
 export type Phase = 'idle' | 'thinking' | 'speaking'
@@ -90,8 +93,8 @@ export type Phase = 'idle' | 'thinking' | 'speaking'
 /** Un mensaje visible en el chat. */
 export type Message = {
   id: number
-  role: 'user' | 'nova' | 'photo' | 'search'
-  text: string // en una foto, es la imagen como data URL; en una búsqueda, lo que se buscó
+  role: 'user' | 'nova' | 'photo' | 'search' | 'browse'
+  text: string // en una foto, la imagen como data URL; en una búsqueda o en el navegador, qué hizo
   sources?: string[] // en una búsqueda, los enlaces de donde salió la información
 }
 
@@ -130,6 +133,9 @@ type ServerEvent =
   | { type: 'move'; place: string }
   | { type: 'write_start' }
   | { type: 'write_done' }
+  | { type: 'browse_start'; task: string }
+  | { type: 'browse_done' }
+  | { type: 'browser_action'; request_id: string; action: BrowserAction }
   | { type: 'interrupted' }
   | ({ type: 'brain' } & Brain)
   | ({ type: 'usage' } & Usage)
@@ -187,6 +193,9 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
   const [isTakingPhoto, setIsTakingPhoto] = useState(false)
   const [interruptCount, setInterruptCount] = useState(0)
   const [photosRemaining, setPhotosRemaining] = useState<number | null>(null)
+  // Lo delicado que Nova quiere hacer en el navegador, mientras espera mi respuesta.
+  const [confirmation, setConfirmation] = useState<string | null>(null)
+  const answerConfirmation = useRef<((accepted: boolean) => void) | null>(null)
 
   // Guarda la función actual para usarla dentro del WebSocket sin reconectarlo.
   const latestCapture = useRef(capturePhoto)
@@ -313,12 +322,13 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     let retry: ReturnType<typeof setTimeout>
 
     const connect = () => {
-      const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
-      const ws = new WebSocket(`${scheme}://${location.host}/ws`)
+      const ws = new WebSocket(socketUrl())
       ws.binaryType = 'arraybuffer'
       socket.current = ws
 
       ws.onopen = () => {
+        // La extensión no tiene la cookie: su sesión va en el primer mensaje.
+        if (IS_EXTENSION) ws.send(JSON.stringify({ type: 'auth', token: readToken() ?? '' }))
         discarding.current = false
         setConnected(true)
         setError(null)
@@ -450,6 +460,24 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
           // Deja constancia en el chat de qué buscó.
           setWebSearch('searching')
           setMessages((current) => [...current, { id: nextId.current++, role: 'search', text: event.query }])
+        } else if (event.type === 'browser_action') {
+          // Lo delicado espera a que yo diga que sí; lo demás se hace de inmediato.
+          const ask = (question: string) =>
+            new Promise<boolean>((resolve) => {
+              answerConfirmation.current = resolve
+              setConfirmation(question)
+            })
+          void runBrowserAction(event.action, ask).then((result) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'browser_result', request_id: event.request_id, ...result }))
+            }
+          })
+        } else if (event.type === 'browse_start') {
+          // Deja constancia en el chat de qué hizo en el navegador.
+          setWebSearch('browsing')
+          setMessages((current) => [...current, { id: nextId.current++, role: 'browse', text: event.task }])
+        } else if (event.type === 'browse_done') {
+          setWebSearch('none')
         } else if (event.type === 'write_start') {
           setWebSearch('writing')
         } else if (event.type === 'write_done') {
@@ -493,8 +521,13 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
         setWebSearch('none')
         turnFinished.current = true
         setPhase('idle')
+        // Sin conexión, nadie espera la respuesta: lo pendiente cuenta como un no.
+        answerConfirmation.current?.(false)
+        answerConfirmation.current = null
+        setConfirmation(null)
         // Sin sesión, reconectar no sirve: al recargar aparece la pantalla de acceso.
         if (code === UNAUTHORIZED_CLOSE_CODE) {
+          if (IS_EXTENSION) saveToken(null)
           location.reload()
           return
         }
@@ -536,10 +569,17 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
       turnFinished.current = false
       setPhase('thinking')
       setMessages((current) => [...current, { id: nextId.current++, role: 'user', text }])
-      ws.send(JSON.stringify({ type: 'chat', text, camera_on: latestCameraOn.current }))
+      ws.send(JSON.stringify({ type: 'chat', text, camera_on: latestCameraOn.current, browser_on: IS_EXTENSION }))
     },
     [unlockAudio],
   )
+
+  // Responde si Nova puede seguir con algo delicado en el navegador.
+  const confirmBrowserAction = useCallback((accepted: boolean) => {
+    answerConfirmation.current?.(accepted)
+    answerConfirmation.current = null
+    setConfirmation(null)
+  }, [])
 
   // Avisa de un gesto; Nova reacciona por su cuenta. Si está ocupada, el servidor lo ignora.
   const sendGesture = useCallback(
@@ -725,5 +765,7 @@ export function useNova(capturePhoto: () => string | null, cameraOn: boolean) {
     unlockAudio,
     getLevel,
     capabilities,
+    confirmation,
+    confirmBrowserAction,
   }
 }

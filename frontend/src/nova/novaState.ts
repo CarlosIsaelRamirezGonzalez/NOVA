@@ -603,7 +603,7 @@ function targetPose(input: NovaInput): Pose {
       sparkleRate: Math.max(base.sparkleRate, 5),
     }
   }
-  if (input.activity === 'searching' || input.activity === 'reading' || input.activity === 'writing') {
+  if (['searching', 'reading', 'writing', 'browsing'].includes(input.activity)) {
     // Las manos bajan hacia el teclado, a los lados del cuerpo para que se vean teclear.
     return { ...base, armLeft: 0.42, armRight: 0.42, bobHeight: base.bobHeight * 0.4 }
   }
@@ -738,8 +738,8 @@ export function stepNova(state: NovaState, input: NovaInput) {
   }
 
   // La compu aparece poco a poco, y cada mano teclea a su propio ritmo para no verse mecánica.
-  // Escribir en otra app se ve igual que buscar: Nova teclea en su compu.
-  const searching = activity === 'searching' || activity === 'writing'
+  // Escribir en otra app o usar el navegador se ve igual que buscar: Nova teclea en su compu.
+  const searching = activity === 'searching' || activity === 'writing' || activity === 'browsing'
   const reading = activity === 'reading'
   state.typing = approach(state.typing, searching || reading ? 1 : 0, 5, dt)
   state.keying = approach(state.keying, searching ? 1 : 0, 8, dt)

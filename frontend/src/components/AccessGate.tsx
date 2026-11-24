@@ -1,9 +1,13 @@
-/** Pide la contraseña en la versión web antes de mostrar a Nova; en la Mac no aparece. */
+/** Pide la contraseña en la web y en la extensión antes de mostrar a Nova; en la Mac no aparece. */
 
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { IS_EXTENSION, apiUrl, saveToken, sessionHeaders } from '../nova/server'
 
-/** Respuesta del servidor sobre la sesión de este navegador. */
-type SessionStatus = { required: boolean; authenticated: boolean }
+/** Respuesta del servidor sobre la sesión; `token` solo llega si la extensión lo pidió. */
+type SessionStatus = { required: boolean; authenticated: boolean; token?: string | null }
+
+// La página usa su cookie; la extensión, que es otro sitio, manda su token y no usa cookies.
+const CREDENTIALS: RequestCredentials = IS_EXTENSION ? 'omit' : 'same-origin'
 
 type GateState = 'checking' | 'login' | 'ready'
 
@@ -22,7 +26,7 @@ export function AccessGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     const check = async () => {
       try {
-        const response = await fetch('/api/session', { credentials: 'same-origin' })
+        const response = await fetch(apiUrl('/api/session'), { credentials: CREDENTIALS, headers: sessionHeaders() })
         // Un servidor sin esta ruta no pide contraseña.
         if (!response.ok) return setState('ready')
         const status = (await response.json()) as SessionStatus
@@ -40,13 +44,14 @@ export function AccessGate({ children }: { children: ReactNode }) {
     setSending(true)
     setError(null)
     try {
-      const response = await fetch('/api/login', {
+      const response = await fetch(apiUrl('/api/login'), {
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: CREDENTIALS,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, want_token: IS_EXTENSION }),
       })
       if (response.ok) {
+        if (IS_EXTENSION) saveToken(((await response.json()) as SessionStatus).token ?? null)
         setPassword('')
         setState('ready')
         return

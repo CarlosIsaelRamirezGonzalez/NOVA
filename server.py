@@ -22,6 +22,7 @@ from pydantic import BaseModel, ValidationError
 from config import Config
 from nova.prompts.nova_prompts import NOVA_AVATAR_INSTRUCTIONS, NOVA_SYSTEM_PROMPT
 from services.agents.agm import GESTURES, VOICE_REQUEST, AgentManager, gesture_message
+from services.agents.browser_service import BrowserAgent
 from services.chunk.emotion_filter import strip_tags
 from services.agents.llms_service import LLMService
 from services.agents.report_service import ReportService
@@ -38,6 +39,11 @@ from services.context.surroundings_service import SurroundingsService
 from services.http_client import create_anthropic_client, create_http_session
 from services.schemas import (
     CLIENT_REQUEST,
+    BrowseDoneEvent,
+    BrowserAction,
+    BrowserActionEvent,
+    BrowserResultRequest,
+    BrowseStartEvent,
     BrainEvent,
     BrainRequest,
     CalmRequest,
@@ -100,6 +106,9 @@ SYNC_SECONDS = 30
 HEARTBEAT_SECONDS = 30
 # Alcanza para contestar el permiso de la cámara la primera vez.
 PHOTO_TIMEOUT_SECONDS = 30
+# Incluye el tiempo que tarde en confirmar una compra o un envío en la extensión.
+BROWSER_ACTION_TIMEOUT_SECONDS = 90
+BROWSER_NO_RESPONSE = "The browser did not respond. The extension may have been closed."
 GESTURE_COOLDOWN_SECONDS = 30
 HISTORY_MESSAGES_SHOWN = 60
 ALLOWED_ORIGINS = frozenset(
@@ -226,6 +235,8 @@ class NovaServer:
             store=self.store,
         )
         self.agent.web_search = WebSearchService(self.anthropic, self.usage)
+        # Solo se usa cuando le hablo desde la extensión de Chrome.
+        self.agent.browser = BrowserAgent(self.anthropic, self.usage)
         if self.features.desktop:
             from services.agents.writing_service import DesktopWriter
 
@@ -276,6 +287,7 @@ class NovaServer:
             self.agent.surroundings = SurroundingsService(self.agent.llm)
         self.pending_photo_id: str | None = None
         self.pending_photo: asyncio.Future[str | None] | None = None
+        self.pending_browser: dict[str, asyncio.Future[BrowserResultRequest]] = {}
         self.last_gesture_at: float | None = None
         self.listening: "ListeningService | None" = None
         if self.features.microphone:
@@ -518,6 +530,10 @@ class NovaServer:
                 if isinstance(client_request, PhotoResponse):
                     self._resolve_photo(client_request)
                     continue
+                # Igual con lo que hizo la extensión en el navegador.
+                if isinstance(client_request, BrowserResultRequest):
+                    self._resolve_browser_action(client_request)
+                    continue
 
                 # Interrumpir también se atiende en pleno turno: precisamente lo detiene.
                 if isinstance(client_request, InterruptRequest):
@@ -547,7 +563,12 @@ class NovaServer:
 
                 # El turno corre aparte para seguir detectando si el navegador se desconecta.
                 turn = asyncio.create_task(
-                    self._run_turn(socket, client_request.text, client_request.camera_on)
+                    self._run_turn(
+                        socket,
+                        client_request.text,
+                        client_request.camera_on,
+                        browser_on=client_request.browser_on,
+                    )
                 )
                 await asyncio.sleep(0)
         finally:
@@ -1097,6 +1118,39 @@ class NovaServer:
         if is_expected and self.pending_photo and not self.pending_photo.done():
             self.pending_photo.set_result(response.data_url)
 
+    def _resolve_browser_action(self, result: BrowserResultRequest) -> None:
+        """Entrega al turno en espera lo que hizo la extensión en el navegador.
+
+        Args:
+            result: Respuesta de la extensión; se ignora si nadie la espera.
+        """
+        pending = self.pending_browser.get(result.request_id)
+        if pending and not pending.done():
+            pending.set_result(result)
+
+    async def _request_browser_action(
+        self, socket: ClientSocket, action: BrowserAction
+    ) -> BrowserResultRequest:
+        """Pide a la extensión una acción en el navegador y espera lo que pasó.
+
+        Args:
+            socket: Conexión con la extensión.
+            action: Qué hacer.
+
+        Returns:
+            Lo que respondió la extensión, o un fallo si no respondió a tiempo.
+        """
+        request_id = uuid.uuid4().hex
+        pending = asyncio.get_running_loop().create_future()
+        self.pending_browser[request_id] = pending
+        try:
+            await self._send(socket, BrowserActionEvent(request_id=request_id, action=action))
+            return await asyncio.wait_for(pending, BROWSER_ACTION_TIMEOUT_SECONDS)
+        except (TimeoutError, ConnectionError):
+            return BrowserResultRequest(request_id=request_id, ok=False, text=BROWSER_NO_RESPONSE)
+        finally:
+            self.pending_browser.pop(request_id, None)
+
     async def _request_photo(
         self, socket: ClientSocket, ignore_cooldown: bool = False, ambient: bool = False
     ) -> PhotoResult:
@@ -1152,6 +1206,7 @@ class NovaServer:
         camera_on: bool,
         spoken: bool = False,
         voice: VoiceCheck | None = None,
+        browser_on: bool = False,
     ) -> None:
         """Ejecuta un turno y envía al navegador todo lo que produzca.
 
@@ -1161,6 +1216,7 @@ class NovaServer:
             camera_on: Si la cámara está encendida en este momento.
             spoken: Si llegó por el micrófono de la Mac.
             voice: Si la voz era la mía.
+            browser_on: Si le hablo desde la extensión de Chrome, que puede usar el navegador.
         """
 
         async def send_token(token: str) -> None:
@@ -1192,8 +1248,25 @@ class NovaServer:
             """
             return await self._request_photo(socket, ignore_cooldown)
 
+        async def run_browser_action(action: BrowserAction) -> BrowserResultRequest:
+            """Ejecuta una acción en el navegador de la extensión conectada.
+
+            Args:
+                action: Qué hacer.
+
+            Returns:
+                Lo que pasó.
+            """
+            return await self._request_browser_action(socket, action)
+
         async def send_search(
-            event: SearchStartEvent | SearchDoneEvent | WriteStartEvent | WriteDoneEvent | MoveEvent,
+            event: SearchStartEvent
+            | SearchDoneEvent
+            | WriteStartEvent
+            | WriteDoneEvent
+            | BrowseStartEvent
+            | BrowseDoneEvent
+            | MoveEvent,
         ) -> None:
             """Avisa al navegador de una búsqueda, de que escribe en otra app o de que se mueva.
 
@@ -1219,6 +1292,7 @@ class NovaServer:
                     send_search,
                     spoken,
                     voice,
+                    run_browser_action if browser_on else None,
                 )
                 await self._send(socket, DoneEvent())
                 if self.features.serverless:

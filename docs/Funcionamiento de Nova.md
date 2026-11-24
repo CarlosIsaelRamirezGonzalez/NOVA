@@ -59,6 +59,7 @@ todo pasa por el servidor, en `127.0.0.1:8787`.
 | SQLite con pyturso | `services/context/memory_store.py` | Fuente de la verdad: mensajes, ánimo, recuerdos, observaciones visuales y gastos |
 | onnxruntime | `services/context/face_identity_service.py` | Corre los modelos de InsightFace (`det_500m` y `w600k_mbf`) para reconocer la cara de Carlos |
 | sherpa-onnx | `services/context/voice_identity_service.py` | Corre WeSpeaker ResNet34 para saber si la voz de cada petición es la de Carlos. Se le enseña con "Nova, apréndete mi voz" y unas frases; el servidor junta unos 8 segundos sin pasar por Claude |
+| Agente del navegador | `services/agents/browser_service.py` | Cuando le hablo desde la extensión de Chrome, Claude Sonnet 5.5 recorre páginas paso a paso con herramientas propias (leer, abrir, clic, escribir, desplazar). Cada acción la ejecuta la extensión |
 | Gmail (SMTP) y mermaid-cli | `services/agents/report_service.py` | Reportes por correo: Claude Sonnet 5.5 investiga y escribe en Markdown, mermaid-cli dibuja los diagramas como PNG en la Mac y el correo sale por Gmail con una contraseña de aplicación. Solo llega a la dirección configurada |
 | CED-tiny vía sherpa-onnx | `services/voice/sound_event_service.py` | Reconoce sonidos del cuarto cada segundo (golpes, vidrios, gritos, alarmas, ladridos, la puerta). Un sonido de alerta hace que Nova dé un vistazo |
 | Vistazos por su cuenta | `services/context/surroundings_service.py` | Una foto cuando oye otra voz, un ruido raro o cada 20 minutos. Haiku la interpreta, decide si hablar, y lo que vio queda unas horas como contexto en memoria |
@@ -95,6 +96,8 @@ viaja como mensajes binarios con el MP3 de cada frase.
 |---|---|
 | `chat` | Un mensaje escrito, con si la cámara está encendida |
 | `photo` | La foto que el servidor pidió, como data URL |
+| `browser_result` | Lo que pasó en el navegador al ejecutar una acción: el texto de la página, un error o una captura |
+| `auth` | Solo la extensión, como primer mensaje: su token de sesión |
 | `gesture` | Un gesto de la mano detectado con MediaPipe |
 | `interrupt` | Cortar a Nova mientras habla |
 | `listen` / `mic_gate` | Encender el micrófono, y abrirlo o cerrarlo mientras Nova habla para que no se oiga a sí misma |
@@ -110,6 +113,8 @@ viaja como mensajes binarios con el MP3 de cada frase.
 | `photo_request` | Pide una foto a la interfaz |
 | `search_start` / `search_done` | Muestra que está buscando y las fuentes |
 | `write_start` / `write_done` | Muestra que está tecleando en otra app |
+| `browser_action` | Pide a la extensión una acción en el navegador |
+| `browse_start` / `browse_done` | Muestra que está usando el navegador y qué tarea hace |
 | `move` | A dónde debe volar la ventana |
 | `listen_state` / `heard` / `greeting` | Estado del micrófono, lo que entendió y el saludo al llamarla |
 | `recall` / `brain` / `history` | Qué recuerdos se encendieron, el cerebro completo y el historial |
@@ -182,6 +187,7 @@ voz.
 | Aprender la cara | Se toman tres fotos seguidas. Si en cada una hay una sola cara clara, el promedio de sus huellas se guarda en `data/face_profile.npy`, fuera de la base que se sube a la nube |
 | Escribir en otra app | `DesktopWriter` captura la ventana al frente y se la da a un redactor aparte: otra llamada a Claude sin herramientas ni memoria. Lo que redacta se limpia en código para que nunca incluya un Enter, y se teclea. Nunca se envía nada |
 | Mandar un reporte por correo | `ReportService` lo prepara en segundo plano y la plática sigue: Claude Sonnet 5.5 investiga y escribe, mermaid-cli dibuja los diagramas y Gmail lo envía. Al terminar, el servidor manda `email_done` y en el chat aparece "Te mandé el correo". Solo llega a Carlos |
+| Usar el navegador | Solo desde la extensión de Chrome. `BrowserAgent` le da la tarea a Claude Sonnet 5.5, que pide acciones una por una; el servidor manda cada una como `browser_action` y espera `browser_result`. La extensión pide confirmación antes de comprar, enviar, publicar o borrar, y nunca escribe en contraseñas ni tarjetas. Al final, Nova cuenta lo que pasó |
 | Moverse | El servidor manda `move` a todas las ventanas y Electron vuela a la esquina, se queda quieta, pasea, gira, baila o se oculta |
 | Olvidar | `MemoryService` decide qué recuerdos corresponden al pedido, los borra de SQLite, Qdrant y Obsidian, y limpia el rastro en la nube. Nova confirma con lo que realmente se borró |
 
@@ -270,6 +276,35 @@ La web y la Mac no deben usar la misma base de Turso al mismo tiempo: cada copia
 mensajes por su cuenta, y al subirlos dos copias podrían pisarse. Por eso la web usa su propia
 base hasta que eso se resuelva.
 
+## Extensión de Chrome
+
+La extensión es la misma interfaz de React, compilada como panel lateral de Chrome, conectada al
+servidor de Vercel. Lo que la hace distinta es que puede usar el navegador.
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Manifest | `extension/manifest.json` | Pide los permisos `sidePanel`, `tabs` y `scripting`, y acceso a todas las páginas |
+| Service worker | `extension/background.js` | Abre el panel al tocar el icono de Nova |
+| Conexión | `frontend/src/nova/server.ts` | En la extensión, usa `https://nova-teal-two.vercel.app` y un token en lugar de la cookie |
+| Acciones | `frontend/src/browser/actions.ts` | Ejecuta lo que pide el servidor con `chrome.tabs` y `chrome.scripting`, y decide qué necesita confirmación |
+| Dentro de la página | `frontend/src/browser/page.ts` | Lee el texto visible, numera botones y campos, da clic y escribe como lo haría una persona |
+
+Al entrar, el servidor devuelve la sesión firmada como token. La extensión lo guarda y lo manda como
+primer mensaje del WebSocket; el servidor acepta el origen `chrome-extension://` solo así.
+
+Lo delicado se decide en el código de la extensión, no en el modelo:
+
+| Caso | Qué hace |
+|---|---|
+| Botón que compra, paga, envía, publica, borra, confirma o entra con contraseña | Pregunta "Nova quiere: … ¿Sigue?" y espera |
+| Enviar texto en algo que no es un buscador, como un chat | Pregunta antes |
+| Enviar una búsqueda | Lo hace sin preguntar |
+| Campo de contraseña o de tarjeta | Nunca escribe ahí |
+| Páginas de Chrome (`chrome://`, la tienda de extensiones) | Chrome no deja entrar; se le avisa al modelo |
+
+Límites: la cámara y el dictado pueden no pedir permiso desde el panel lateral, y Vercel corta la
+conexión a los 5 minutos, así que una tarea en el navegador termina a los 200 segundos.
+
 ## Cómo arrancarla
 
 | Modo | Comando | Qué levanta |
@@ -277,6 +312,7 @@ base hasta que eso se resuelva.
 | Web en local, para probar | `uvicorn web.app:app --port 8788` con `NOVA_WEB_PASSWORD` y `NOVA_SESSION_SECRET` | La versión web con su contraseña, sirviendo `frontend/dist` |
 | Web en Vercel | `npx vercel deploy --prod` | Compila la interfaz y despliega `web/app.py` (ver `pyproject.toml` y `vercel.json`) |
 | Desarrollo en el navegador | `./start.sh` | El servidor y Vite; se abre `http://localhost:5173` |
+| Extensión de Chrome | `npm --prefix frontend run build:extension` y cargar `extension/dist` en `chrome://extensions` | El panel lateral conectado a Vercel |
 | App de escritorio | `.venv/bin/python server.py` y luego `npm --prefix desktop start` | El servidor sirve `frontend/dist` y Electron lo carga. Antes hay que compilar con `npm --prefix frontend run build` |
 | Consola | `.venv/bin/python nova_agm.py` | Solo texto por teclado y voz por los altavoces, sin interfaz |
 

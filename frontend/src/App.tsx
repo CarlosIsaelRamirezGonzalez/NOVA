@@ -60,6 +60,7 @@ const STATUS: Record<Activity, string> = {
   searching: 'Buscando en internet',
   reading: 'Contándote lo que encontró',
   writing: 'Escribiendo en tu app',
+  browsing: 'Usando tu navegador',
 }
 
 /**
@@ -139,6 +140,8 @@ export default function App() {
     unlockAudio,
     getLevel,
     capabilities,
+    confirmation,
+    confirmBrowserAction,
   } = useNova(camera.capture, camera.active)
   const [draft, setDraft] = useState('')
   // Lo que el usuario va diciendo, antes de enviarse.
@@ -504,6 +507,10 @@ export default function App() {
           .map((message) =>
           message.role === 'search' ? (
             <SearchNote key={message.id} query={message.text} sources={message.sources} />
+          ) : message.role === 'browse' ? (
+            <p key={message.id} className="text-sm text-muted">
+              Usó tu navegador: {message.text}
+            </p>
           ) : message.role === 'photo' ? (
             <img
               key={message.id}
@@ -535,6 +542,36 @@ export default function App() {
           </p>
         )}
       </div>
+
+      {/* Algo delicado en el navegador: Nova no sigue hasta que digas que sí */}
+      {confirmation && (
+        <section
+          role="alertdialog"
+          aria-labelledby="browser-confirmation"
+          className="mb-3 flex flex-wrap items-center gap-3 rounded-2xl border border-alert bg-panel px-4 py-3"
+        >
+          <p id="browser-confirmation" className="min-w-0 flex-1 text-cream">
+            Nova quiere: {confirmation}. ¿Sigue?
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => confirmBrowserAction(false)}
+              className="rounded-full border border-line px-4 py-2 text-sm text-cream outline-none hover:bg-line focus-visible:border-glow"
+            >
+              No
+            </button>
+            <button
+              type="button"
+              onClick={() => confirmBrowserAction(true)}
+              autoFocus
+              className="rounded-full bg-alert px-4 py-2 text-sm font-semibold text-night outline-none hover:brightness-110 focus-visible:ring-2 focus-visible:ring-cream"
+            >
+              Sí, hazlo
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* Errores de conexión o del micrófono */}
       {notice && (

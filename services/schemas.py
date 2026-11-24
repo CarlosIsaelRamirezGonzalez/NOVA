@@ -29,12 +29,14 @@ PhotoStatus = Literal["granted", "camera_off", "daily_limit", "cooldown", "faile
 
 # Una foto de 640x480 en JPEG ocupa bastante menos; esto solo frena envíos anómalos.
 MAX_PHOTO_DATA_URL_CHARS = 2_000_000
+# Lo que la extensión cuenta de una página: el texto visible y sus elementos, ya recortados.
+MAX_BROWSER_TEXT_CHARS = 40_000
 
 
 # ---------------------------------------------------------------------------
 # Peticiones al modelo de lenguaje
 # ---------------------------------------------------------------------------
-UsagePurpose = Literal["conversation", "memory", "search", "report", "voice"]
+UsagePurpose = Literal["conversation", "memory", "search", "report", "voice", "browser"]
 
 
 MovePlace = Literal[
@@ -210,6 +212,16 @@ class WriteArguments(BaseModel):
     instructions: str
 
 
+class BrowseArguments(BaseModel):
+    """Argumentos con los que el modelo pide usar mi navegador.
+
+    Attributes:
+        task: Qué quiero que haga, con los datos que di.
+    """
+
+    task: str
+
+
 class ChatRequest(BaseModel):
     """Petición al modelo de lenguaje.
 
@@ -314,6 +326,7 @@ class FilteredText(BaseModel):
         move_place: A dónde quiere moverse Nova en la pantalla, si pidió hacerlo.
         learn_face_requested: Si Nova debe aprender mi cara porque se lo pedí.
         email_request: Lo que debe llevar el reporte por correo, si pidió mandarlo.
+        browse_task: Lo que Nova debe hacer en mi navegador, si pidió usarlo.
     """
 
     text: str = ""
@@ -325,6 +338,7 @@ class FilteredText(BaseModel):
     move_place: MovePlace | None = None
     learn_face_requested: bool = False
     email_request: str | None = None
+    browse_task: str | None = None
 
 
 class VisualObservation(BaseModel):
@@ -587,6 +601,7 @@ class StreamedReply(BaseModel):
         move_place: A dónde quiere moverse Nova en la pantalla, si pidió hacerlo.
         learn_face_requested: Si Nova debe aprender mi cara porque se lo pedí.
         email_request: Lo que debe llevar el reporte por correo, si pidió mandarlo.
+        browse_task: Lo que Nova debe hacer en mi navegador, si pidió usarlo.
     """
 
     raw_text: str = ""
@@ -597,6 +612,7 @@ class StreamedReply(BaseModel):
     move_place: MovePlace | None = None
     learn_face_requested: bool = False
     email_request: str | None = None
+    browse_task: str | None = None
 
 
 class PhotoResult(BaseModel):
@@ -778,10 +794,12 @@ class ChatRequestMessage(BaseModel):
         type: Discriminador de la petición.
         text: Lo que escribió o dictó el usuario, ya sin espacios sobrantes.
         camera_on: Si la cámara está encendida en este momento.
+        browser_on: Si llega desde la extensión de Chrome, que puede usar el navegador.
     """
 
     type: Literal["chat"] = "chat"
     camera_on: bool = False
+    browser_on: bool = False
     text: Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_MESSAGE_CHARS),
@@ -901,6 +919,7 @@ class UsageDay(BaseModel):
         memory: Dólares en recuerdos.
         search: Dólares en búsquedas.
         report: Dólares en reportes por correo.
+        browser: Dólares en tareas en el navegador.
     """
 
     day: str
@@ -908,6 +927,7 @@ class UsageDay(BaseModel):
     memory: float
     search: float
     report: float = 0.0
+    browser: float = 0.0
 
 
 class UsageServiceTotal(UsageRecord):
@@ -1328,10 +1348,12 @@ class SessionStatus(BaseModel):
     Attributes:
         required: Si este servidor pide contraseña; en la Mac no.
         authenticated: Si el navegador ya tiene una sesión válida.
+        token: Sesión firmada para la extensión, que no puede usar la cookie; solo si la pidió.
     """
 
     required: bool
     authenticated: bool
+    token: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -1339,9 +1361,192 @@ class LoginRequest(BaseModel):
 
     Attributes:
         password: Lo que escribió el usuario; nunca se guarda ni se registra.
+        want_token: Si la sesión debe volver también como token, para la extensión.
     """
 
     password: Annotated[str, StringConstraints(min_length=1, max_length=256)]
+    want_token: bool = False
+
+
+class SocketAuth(BaseModel):
+    """Primer mensaje de la extensión por el WebSocket: su sesión, que no viaja en una cookie.
+
+    Attributes:
+        type: Discriminador del mensaje.
+        token: Sesión firmada que recibió al entrar.
+    """
+
+    type: Literal["auth"] = "auth"
+    token: Annotated[str, StringConstraints(max_length=200)]
+
+
+# ---------------------------------------------------------------------------
+# Navegador (extensión de Chrome)
+# ---------------------------------------------------------------------------
+BrowserActionName = Literal[
+    "list_tabs",
+    "read_page",
+    "screenshot",
+    "navigate",
+    "open_tab",
+    "switch_tab",
+    "go_back",
+    "click",
+    "type_text",
+    "scroll",
+]
+BrowseStatus = Literal["done", "incomplete", "failed"]
+
+
+class NavigateArguments(BaseModel):
+    """Argumentos para abrir una dirección.
+
+    Attributes:
+        url: Dirección completa, con `https://`.
+    """
+
+    url: str
+
+
+class SwitchTabArguments(BaseModel):
+    """Argumentos para cambiar de pestaña.
+
+    Attributes:
+        tab_id: Número de la pestaña, como lo da `list_tabs`.
+    """
+
+    tab_id: int
+
+
+class ClickArguments(BaseModel):
+    """Argumentos para dar clic.
+
+    Attributes:
+        ref: Número del elemento, como lo da `read_page`.
+    """
+
+    ref: int
+
+
+class TypeArguments(BaseModel):
+    """Argumentos para escribir en un campo.
+
+    Attributes:
+        ref: Número del campo, como lo da `read_page`.
+        text: Lo que se escribe; reemplaza lo que tuviera.
+        submit: Si después se envía el formulario, como al presionar Enter.
+    """
+
+    ref: int
+    text: str
+    submit: bool = False
+
+
+class ScrollArguments(BaseModel):
+    """Argumentos para desplazar la página.
+
+    Attributes:
+        direction: Hacia dónde.
+    """
+
+    direction: Literal["up", "down"]
+
+
+class BrowserAction(BaseModel):
+    """Una acción que la extensión ejecuta en el navegador.
+
+    Attributes:
+        name: Qué hacer.
+        url: Dirección, al navegar o abrir una pestaña.
+        tab_id: Pestaña, al cambiar de pestaña.
+        ref: Elemento de la página, al dar clic o escribir.
+        text: Texto, al escribir.
+        submit: Si se envía el formulario después de escribir.
+        direction: Hacia dónde desplazar la página.
+    """
+
+    name: BrowserActionName
+    url: str | None = None
+    tab_id: int | None = None
+    ref: int | None = None
+    text: Annotated[str, StringConstraints(max_length=2000)] | None = None
+    submit: bool = False
+    direction: Literal["up", "down"] | None = None
+
+
+class BrowserActionEvent(BaseModel):
+    """Pide a la extensión una acción en el navegador.
+
+    Attributes:
+        type: Discriminador del evento.
+        request_id: Identificador para reconocer la respuesta.
+        action: Qué hacer.
+    """
+
+    type: Literal["browser_action"] = "browser_action"
+    request_id: str
+    action: BrowserAction
+
+
+class BrowserResultRequest(BaseModel):
+    """Lo que pasó al ejecutar una acción en el navegador.
+
+    Attributes:
+        type: Discriminador de la petición.
+        request_id: Identificador de la acción que se responde.
+        ok: Si se pudo hacer.
+        text: Lo que se ve en la página, o por qué no se pudo.
+        screenshot: Captura de la pestaña en JPEG, si se pidió.
+    """
+
+    type: Literal["browser_result"] = "browser_result"
+    request_id: str
+    ok: bool
+    text: Annotated[str, StringConstraints(max_length=MAX_BROWSER_TEXT_CHARS)] = ""
+    screenshot: (
+        Annotated[
+            str,
+            StringConstraints(
+                pattern=r"^data:image/jpeg;base64,[A-Za-z0-9+/=]+$",
+                max_length=MAX_PHOTO_DATA_URL_CHARS,
+            ),
+        ]
+        | None
+    ) = None
+
+
+class BrowseResult(BaseModel):
+    """Cómo terminó una tarea en el navegador.
+
+    Attributes:
+        status: Si la terminó, si se quedó a medias o si falló.
+        summary: Lo que hizo y encontró, en pocas frases.
+    """
+
+    status: BrowseStatus
+    summary: str
+
+
+class BrowseStartEvent(BaseModel):
+    """Aviso de que Nova empezó a usar el navegador.
+
+    Attributes:
+        type: Discriminador del evento.
+        task: Qué va a hacer.
+    """
+
+    type: Literal["browse_start"] = "browse_start"
+    task: str
+
+
+class BrowseDoneEvent(BaseModel):
+    """Aviso de que Nova terminó de usar el navegador.
+
+    Attributes:
+        type: Discriminador del evento.
+    """
+
+    type: Literal["browse_done"] = "browse_done"
 
 
 ServerEvent = (
@@ -1364,6 +1569,9 @@ ServerEvent = (
     | VisualProfileEvent
     | WriteStartEvent
     | WriteDoneEvent
+    | BrowseStartEvent
+    | BrowseDoneEvent
+    | BrowserActionEvent
     | GestureReactionEvent
     | InterruptedEvent
     | DoneEvent
@@ -1385,7 +1593,8 @@ CLIENT_REQUEST = TypeAdapter(
         | ForgetMemoryRequest
         | VisualProfileRequest
         | ForgetVisualRequest
-        | ForgetFaceRequest,
+        | ForgetFaceRequest
+        | BrowserResultRequest,
         Field(discriminator="type"),
     ]
 )

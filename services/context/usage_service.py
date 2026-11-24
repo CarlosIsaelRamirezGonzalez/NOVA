@@ -24,7 +24,7 @@ MODEL_PRICES: tuple[tuple[str, tuple[float, float, float, float]], ...] = (
 )
 SEARCH_PRICE = 0.01
 TOKENS_PER_PRICE_UNIT = 1_000_000
-PURPOSES: tuple[UsagePurpose, ...] = ("conversation", "memory", "search", "report", "voice")
+PURPOSES: tuple[UsagePurpose, ...] = ("conversation", "memory", "search", "report", "browser", "voice")
 
 DAYS_SHOWN = 30
 
@@ -103,6 +103,7 @@ class UsageService:
                     memory=sum(row.cost_usd for row in of_day if row.purpose == "memory"),
                     search=sum(row.cost_usd for row in of_day if row.purpose == "search"),
                     report=sum(row.cost_usd for row in of_day if row.purpose == "report"),
+                    browser=sum(row.cost_usd for row in of_day if row.purpose == "browser"),
                 )
             )
 

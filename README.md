@@ -45,4 +45,18 @@ cara; se le habla escribiendo o con el dictado del navegador (Chrome).
 Para probarla en la Mac antes de desplegar: `pip install fastapi "uvicorn[standard]"` y
 `uvicorn web.app:app --port 8788`, con `NOVA_WEB_PASSWORD` y `NOVA_SESSION_SECRET` definidos.
 
+## Extensión de Chrome
+Nova en el panel lateral de Chrome, conectada a la versión web. Además de platicar, puede usar tu
+navegador cuando se lo pides: "búscame vuelos a Cancún", "¿qué dice esta página?", "llena esto con…".
+Antes de comprar, enviar, publicar o borrar te pregunta, y nunca escribe contraseñas ni tarjetas.
+
+1. Despliega la versión web (ver arriba): la extensión se conecta a `https://nova-teal-two.vercel.app`.
+   Para usar otro servidor: `VITE_NOVA_SERVER=https://tu-servidor npm --prefix frontend run build:extension`.
+2. Compila: `npm --prefix frontend run build:extension`.
+3. En Chrome abre `chrome://extensions`, enciende el **Modo de desarrollador**, elige **Cargar
+   descomprimida** y selecciona la carpeta `extension/dist`.
+4. Toca el icono de Nova en la barra de Chrome, entra con la contraseña de la web y pídele algo.
+
+Tras cambiar el código, vuelve a compilar y presiona el botón de recargar de la extensión.
+
 Nunca subas `.env` ni `data/`: contienen tus claves y tus conversaciones.

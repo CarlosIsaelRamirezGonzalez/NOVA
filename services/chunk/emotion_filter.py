@@ -21,6 +21,7 @@ MOVE_PATTERN = re.compile(
 )
 WRITE_PATTERN = re.compile(r"\[\[\s*write\s*:\s*([^\[\]]{1,400}?)\s*\]\]", re.IGNORECASE)
 EMAIL_PATTERN = re.compile(r"\[\[\s*email\s*:\s*([^\[\]]{1,1200}?)\s*\]\]", re.IGNORECASE)
+BROWSE_PATTERN = re.compile(r"\[\[\s*browse\s*:\s*([^\[\]]{1,800}?)\s*\]\]", re.IGNORECASE)
 # Admite `[[sad]]` y mezclas como `[[sad:0.6, worried:0.4]]`.
 _COMPONENT = r"[a-zA-Z]+(?:\s*:\s*\d*\.?\d+)?"
 TAG_PATTERN = re.compile(rf"\[\[\s*({_COMPONENT}(?:\s*,\s*{_COMPONENT})*)\s*\]\]")
@@ -73,7 +74,7 @@ def strip_tags(text: str) -> str:
 
 
 class EmotionTagFilter:
-    """Separa `[[emoción]]`, `[[photo]]`, `[[forget]]`, `[[search: ...]]`, `[[write: ...]]` y `[[email: ...]]`, aunque lleguen en varios tokens."""
+    """Separa `[[emoción]]`, `[[photo]]`, `[[forget]]`, `[[search: ...]]`, `[[write: ...]]`, `[[email: ...]]` y `[[browse: ...]]`, aunque lleguen en varios tokens."""
 
     def __init__(self) -> None:
         """Inicia sin texto pendiente."""
@@ -135,6 +136,12 @@ class EmotionTagFilter:
             if email:
                 result.email_request = result.email_request or email.group(1)
                 self.pending = self.pending[email.end() :]
+                continue
+
+            browse = BROWSE_PATTERN.match(self.pending)
+            if browse:
+                result.browse_task = result.browse_task or browse.group(1)
+                self.pending = self.pending[browse.end() :]
                 continue
 
             match = TAG_PATTERN.match(self.pending)

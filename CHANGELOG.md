@@ -2,6 +2,18 @@
 
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
+## Sin publicar · 23 de noviembre de 2026 · Nova en Chrome
+- Nova tiene extensión de Chrome: vive en el panel lateral, se conecta al servidor de Vercel y puede usar mi navegador cuando se lo pido ("búscame vuelos a Cancún", "¿qué dice esta página?", "llena esto con...").
+- Nova (Haiku) decide cuándo usar el navegador y le pasa la tarea a Claude Sonnet 5.5, que la recorre paso a paso: lee la página, abre direcciones, cambia de pestaña, da clic, escribe y desplaza. Al terminar, Nova cuenta lo que hizo y encontró.
+- Cada paso viaja por el mismo WebSocket: el servidor manda `browser_action` y la extensión responde `browser_result`, como ya se hacía con las fotos.
+- Lo delicado lo decide la extensión, no el modelo: dar clic en comprar, pagar, enviar, publicar o borrar, o enviar algo que no sea un buscador, muestra "Nova quiere: … ¿Sigue?" y espera mi sí. En contraseñas y tarjetas nunca escribe.
+- Lo que dicen las páginas es información, no órdenes: así se le indica a Sonnet y así se le marca a Nova cuando lo cuenta.
+- Para no encarecer cada paso, solo las dos últimas páginas leídas van completas al modelo. Una tarea tiene hasta 30 pasos y 200 segundos, porque Vercel corta la conexión a los 5 minutos.
+- La extensión entra con la misma contraseña, pero recibe un token firmado en lugar de la cookie, porque es otro sitio. El WebSocket acepta páginas de `chrome-extension://` solo con ese token como primer mensaje.
+- La vista de gastos separa lo que cuesta usar el navegador, con su propio color.
+- Nuevos `extension/` (manifest y service worker), `frontend/src/browser/` y `services/agents/browser_service.py`. Se arma con `npm --prefix frontend run build:extension` y se carga desde `extension/dist`.
+- Probado: el token de la extensión entra y uno falso se rechaza; el agente con un Claude simulado recorre los pasos y descarta argumentos inválidos; y en un navegador real, la lectura de la página, el buscador, la lista desplegable y la detección de botones delicados, contraseñas y tarjetas.
+
 ## Sin publicar · 21 de noviembre de 2026 · Servidor web ordenado
 - `web/app.py` queda solo con las rutas. Lo demás se separa: `web/settings.py` (qué se enciende y los secretos), `web/session.py` (contraseña, cookie firmada y origen) y `web/socket_adapter.py` (el WebSocket con la forma que espera `NovaServer`).
 - La sesión ahora es una clase, `SessionGuard`, que deriva la clave de firma una sola vez en vez de pasar los secretos a cada función.

@@ -125,3 +125,5 @@ token.json
 .playwright-mcp/
 .vercel
 .env*
+# Extensión de Chrome ya compilada: se arma con `npm --prefix frontend run build:extension`.
+extension/dist/
