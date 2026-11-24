@@ -285,6 +285,7 @@ servidor de Vercel. Lo que la hace distinta es que puede usar el navegador.
 |---|---|---|
 | Manifest | `extension/manifest.json` | Pide los permisos `sidePanel`, `tabs` y `scripting`, y acceso a todas las páginas |
 | Service worker | `extension/background.js` | Abre el panel al tocar el icono de Nova |
+| Iconos | `extension/icons/` | La cabeza de Nova recortada de la hoja del personaje, en 16, 32, 48 y 128 px |
 | Conexión | `frontend/src/nova/server.ts` | En la extensión, usa `https://nova-teal-two.vercel.app` y un token en lugar de la cookie |
 | Acciones | `frontend/src/browser/actions.ts` | Ejecuta lo que pide el servidor con `chrome.tabs` y `chrome.scripting`, y decide qué necesita confirmación |
 | Dentro de la página | `frontend/src/browser/page.ts` | Lee el texto visible, numera botones y campos, da clic y escribe como lo haría una persona |

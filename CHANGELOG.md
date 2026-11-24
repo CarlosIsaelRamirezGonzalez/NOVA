@@ -3,6 +3,8 @@
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
 ## Sin publicar · 23 de noviembre de 2026 · Nova en Chrome
+- La extensión ya tiene el icono de Nova en lugar de la "N" que ponía Chrome. Sale del recuadro "DETALLE" de la hoja del personaje, en 16, 32, 48 y 128 px (`extension/icons/`).
+- El servidor nuevo ya está en Vercel. Probado en producción: la extensión entra con la contraseña, recibe su token y se conecta al WebSocket.
 - Nova tiene extensión de Chrome: vive en el panel lateral, se conecta al servidor de Vercel y puede usar mi navegador cuando se lo pido ("búscame vuelos a Cancún", "¿qué dice esta página?", "llena esto con...").
 - Nova (Haiku) decide cuándo usar el navegador y le pasa la tarea a Claude Sonnet 5.5, que la recorre paso a paso: lee la página, abre direcciones, cambia de pestaña, da clic, escribe y desplaza. Al terminar, Nova cuenta lo que hizo y encontró.
 - Cada paso viaja por el mismo WebSocket: el servidor manda `browser_action` y la extensión responde `browser_result`, como ya se hacía con las fotos.
