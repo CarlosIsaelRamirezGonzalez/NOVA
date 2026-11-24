@@ -7,17 +7,21 @@
  * contraseñas o tarjetas nunca se escribe.
  */
 
-import { checkElement, clickElement, scrollPage, snapshotPage, typeIntoElement } from './page'
+import { checkElement, clickElement, leaveNote, scrollPage, snapshotPage, typeIntoElement } from './page'
 
 /** Acción que pide el servidor; mismos campos que `BrowserAction` en Python. */
 export type BrowserAction = {
-  name: 'list_tabs' | 'read_page' | 'screenshot' | 'navigate' | 'open_tab' | 'switch_tab' | 'go_back' | 'click' | 'type_text' | 'scroll'
+  name:
+    | 'list_tabs' | 'read_page' | 'screenshot' | 'navigate' | 'open_tab' | 'switch_tab' | 'go_back'
+    | 'click' | 'type_text' | 'scroll' | 'leave_note' | 'group_tabs'
   url?: string | null
   tab_id?: number | null
   ref?: number | null
   text?: string | null
   submit?: boolean
   direction?: 'up' | 'down' | null
+  title?: string | null
+  tab_ids?: number[] | null
 }
 
 /** Lo que se le responde al servidor. */
@@ -34,6 +38,8 @@ const SETTLE_MS = 700
 const SCREENSHOT_QUALITY = 60
 // Páginas donde Chrome no deja entrar a ninguna extensión.
 const RESTRICTED_URL = /^(chrome|chrome-extension|edge|about|devtools|view-source):|^https:\/\/chromewebstore\.google\.com/
+// La carita que llevan las notas; el manifest la deja ver a las páginas.
+const NOTE_ICON = 'icons/nova-48.png'
 const DECLINED = 'Carlos declined this action. Stop and tell Nova; do not try another way.'
 
 /**
@@ -80,6 +86,10 @@ async function perform(action: BrowserAction, confirm: Confirm): Promise<Browser
       return typeText(action.ref, action.text ?? '', Boolean(action.submit), confirm)
     case 'scroll':
       return scroll(action.direction ?? 'down')
+    case 'leave_note':
+      return note(action.text ?? '', action.ref ?? null)
+    case 'group_tabs':
+      return groupTabs(action.title ?? 'Nova', action.tab_ids ?? [])
   }
 }
 
@@ -166,6 +176,7 @@ async function inPage<Args extends unknown[], Result>(
 async function readPage(tab: chrome.tabs.Tab): Promise<BrowserResult> {
   const page = await inPage(tab, snapshotPage, MAX_PAGE_CHARS, MAX_ELEMENTS)
   const text = [
+    `Tab: ${tab.id}`,
     `URL: ${page.url}`,
     `Title: ${page.title}`,
     '',
@@ -324,4 +335,32 @@ async function scroll(direction: 'up' | 'down'): Promise<BrowserResult> {
   const tab = await activeTab()
   await inPage(tab, scrollPage, direction)
   return readPage(tab)
+}
+
+/**
+ * Deja una notita de Nova en la pestaña activa, con su carita.
+ *
+ * @param text - Lo que dice la nota.
+ * @param ref - Elemento junto al que va, o `null` para la esquina.
+ * @returns Si se puso.
+ */
+async function note(text: string, ref: number | null): Promise<BrowserResult> {
+  if (!text.trim()) throw new Error('leave_note needs text.')
+  const tab = await activeTab()
+  await inPage(tab, leaveNote, text.trim(), ref, chrome.runtime.getURL(NOTE_ICON))
+  return { ok: true, text: `Note left on tab ${tab.id}.` }
+}
+
+/**
+ * Junta pestañas en un grupo morado con nombre, para que Carlos encuentre lo que le dejó Nova.
+ *
+ * @param title - Nombre del grupo.
+ * @param tabIds - Pestañas que van juntas.
+ * @returns El grupo creado.
+ */
+async function groupTabs(title: string, tabIds: number[]): Promise<BrowserResult> {
+  if (tabIds.length === 0) throw new Error('group_tabs needs tab_ids.')
+  const groupId = await chrome.tabs.group({ tabIds: tabIds as [number, ...number[]] })
+  await chrome.tabGroups.update(groupId, { title, color: 'purple', collapsed: false })
+  return { ok: true, text: `Grouped ${tabIds.length} tabs as "${title}".` }
 }

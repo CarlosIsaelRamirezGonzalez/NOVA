@@ -8,6 +8,7 @@
   "permissions": [
     "sidePanel",
     "tabs",
+    "tabGroups",
     "scripting",
     "alarms"
   ],
@@ -36,5 +37,15 @@
     "32": "icons/nova-32.png",
     "48": "icons/nova-48.png",
     "128": "icons/nova-128.png"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/nova-48.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }

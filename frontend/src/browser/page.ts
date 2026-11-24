@@ -58,9 +58,15 @@ export function snapshotPage(maxChars: number, maxElements: number): PageSnapsho
   document.querySelectorAll('[data-nova-ref]').forEach((element) => element.removeAttribute('data-nova-ref'))
   const lines: string[] = []
   let next = 1
-  for (const element of document.querySelectorAll(selector)) {
+  // Botones y campos van antes que los enlaces: en una tienda, los cientos de enlaces del menú
+  // dejaban fuera del límite al botón de "Agregar al carrito".
+  const visible = [...document.querySelectorAll(selector)].filter(isVisible)
+  const ordered = [
+    ...visible.filter((element) => !(element instanceof HTMLAnchorElement)),
+    ...visible.filter((element) => element instanceof HTMLAnchorElement),
+  ]
+  for (const element of ordered) {
     if (next > maxElements) break
-    if (!isVisible(element)) continue
     element.setAttribute('data-nova-ref', String(next))
     lines.push(`[${next}] ${describe(element)}`)
     next += 1
@@ -104,16 +110,77 @@ export function checkElement(ref: number): ElementCheck {
 }
 
 /**
- * Da clic en un elemento.
+ * Da clic en un elemento, después de iluminarlo un momento para que se vea qué va a tocar Nova.
  *
  * @param ref - Número que le dio la última lectura.
  * @returns Si se encontró.
  */
-export function clickElement(ref: number): boolean {
+export async function clickElement(ref: number): Promise<boolean> {
   const element = document.querySelector<HTMLElement>(`[data-nova-ref="${ref}"]`)
   if (!element) return false
   element.scrollIntoView({ block: 'center' })
+  const { outline, boxShadow } = element.style
+  element.style.outline = '3px solid #9a6bd8'
+  element.style.boxShadow = '0 0 18px 4px rgba(154, 107, 216, 0.8)'
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  element.style.outline = outline
+  element.style.boxShadow = boxShadow
   element.click()
+  return true
+}
+
+/**
+ * Deja una notita de Nova en la página: junto a un elemento o, sin él, en una esquina.
+ *
+ * Vive en un Shadow DOM para que los estilos de la página no la desarmen. Se queda hasta que la
+ * cierren o la página cambie.
+ *
+ * @param text - Lo que dice la nota.
+ * @param ref - Elemento junto al que va, como lo dio la última lectura.
+ * @param iconUrl - Carita de Nova, servida por la extensión.
+ * @returns Si se pudo poner.
+ */
+export function leaveNote(text: string, ref: number | null, iconUrl: string): boolean {
+  const target = ref == null ? null : document.querySelector<HTMLElement>(`[data-nova-ref="${ref}"]`)
+  const host = document.createElement('div')
+  host.setAttribute('data-nova-note', '')
+  const shadow = host.attachShadow({ mode: 'open' })
+  const card = document.createElement('div')
+  card.innerHTML = `
+    <style>
+      .card { position: fixed; z-index: 2147483647; display: flex; gap: 10px; align-items: flex-start;
+        max-width: 300px; padding: 12px 14px; border-radius: 16px; background: #14123a; color: #f3f3ff;
+        border: 2px solid #9a6bd8; box-shadow: 0 8px 28px rgba(20, 18, 58, 0.45), 0 0 18px rgba(154, 107, 216, 0.5);
+        font: 14px/1.4 system-ui, -apple-system, sans-serif; animation: pop .35s ease-out; }
+      img { width: 34px; height: 34px; border-radius: 10px; flex: none; image-rendering: pixelated; }
+      p { margin: 0; flex: 1; }
+      b { display: block; color: #c9b5ff; font-size: 12px; margin-bottom: 2px; }
+      button { all: unset; cursor: pointer; color: #a9a6d8; font-size: 16px; line-height: 1; padding: 0 2px; }
+      button:focus-visible { outline: 2px solid #a9d6ff; border-radius: 4px; }
+      @keyframes pop { from { transform: translateY(8px) scale(.96); opacity: 0 } to { transform: none; opacity: 1 } }
+    </style>
+    <div class="card" role="note">
+      <img alt="" src="${iconUrl}"><p><b>Nova</b><span></span></p><button type="button" aria-label="Cerrar nota">×</button>
+    </div>`
+  shadow.append(card)
+  const box = shadow.querySelector<HTMLElement>('.card')!
+  // Como texto, nunca como HTML: así una nota no puede meter nada en la página.
+  shadow.querySelector('span')!.textContent = text
+  shadow.querySelector('button')!.addEventListener('click', () => host.remove())
+
+  // Las notas sin elemento se apilan en la esquina inferior derecha.
+  const stacked = document.querySelectorAll('[data-nova-note]:not([data-anchored])').length
+  if (target) {
+    host.setAttribute('data-anchored', '')
+    target.scrollIntoView({ block: 'center' })
+    const place = target.getBoundingClientRect()
+    box.style.top = `${Math.min(place.bottom + 10, window.innerHeight - 120)}px`
+    box.style.left = `${Math.max(12, Math.min(place.left, window.innerWidth - 320))}px`
+  } else {
+    box.style.right = '20px'
+    box.style.bottom = `${20 + stacked * 96}px`
+  }
+  document.documentElement.append(host)
   return true
 }
 

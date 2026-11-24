@@ -3,6 +3,12 @@
 Cada versión tiene una etiqueta de git con el mismo nombre. Para ver una: `git show v0.6.0`.
 
 ## Sin publicar · 23 de noviembre de 2026 · Nova en Chrome
+- Nova vive en el navegador y actúa ante una necesidad, no solo ante órdenes. Si le digo "ptm, no sé cómo limpiar mi carro", abre una guía, agrega lo esencial a mi carrito de Amazon, agrupa las pestañas como "Nova · Limpiar carro" y me deja una notita con su carita en cada una: "Paso 1: mira esta guía", "Paso 2: ya te dejé esto en tu carrito".
+- No me cuenta todo: me dice que ya está listo y dónde empezar, para que descubra el resto. Agregar al carrito no cuesta; pagar sigue pidiendo mi sí.
+- Acciones nuevas del navegador: `leave_note` (nota de Nova junto a un elemento o en una esquina, dentro de un Shadow DOM para que la página no la desarme) y `group_tabs` (grupo de pestañas morado con nombre). Permiso nuevo: `tabGroups`.
+- Antes de cada clic, el botón brilla en morado un momento, para que se vea qué va a tocar.
+- Al leer una página, los botones y campos van antes que los enlaces: en una tienda, los cientos de enlaces del menú dejaban fuera al botón de "Agregar al carrito".
+- Probado con Claude real en páginas simuladas: en 7 pasos y 16 segundos abrió la guía, agregó tres productos, agrupó las pestañas y dejó las notas en orden.
 - La Nova de la Mac también usa Chrome: si le digo, por voz o en su ventana, "abre YouTube y pon lofi" o "escríbele a Mia que…", lo hace en la ventana de Chrome que tengo al frente y Chrome pasa al frente para que la vea.
 - Funciona con un puente: el service worker de la extensión se conecta a `127.0.0.1:8787/browser` aunque el panel esté cerrado. Por ahí solo viajan acciones del navegador y sus resultados; ni la plática, ni la memoria, ni el audio. Si Nova no está abierta en la Mac, lo reintenta cada minuto.
 - El servidor de la Mac solo acepta el puente de esta extensión. Por eso la extensión trae una llave pública en el manifest, que fija su ID (`gieebikbceifemmialncelfoblikepbp`) aunque se cargue desde otra carpeta.

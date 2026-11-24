@@ -1394,6 +1394,8 @@ BrowserActionName = Literal[
     "click",
     "type_text",
     "scroll",
+    "leave_note",
+    "group_tabs",
 ]
 BrowseStatus = Literal["done", "incomplete", "failed"]
 
@@ -1452,6 +1454,30 @@ class ScrollArguments(BaseModel):
     direction: Literal["up", "down"]
 
 
+class LeaveNoteArguments(BaseModel):
+    """Argumentos para dejarme una nota en la página.
+
+    Attributes:
+        text: Lo que dice la nota: un paso corto, en español.
+        ref: Elemento junto al que va la nota, como lo da `read_page`; sin él, va en una esquina.
+    """
+
+    text: Annotated[str, StringConstraints(max_length=300)]
+    ref: int | None = None
+
+
+class GroupTabsArguments(BaseModel):
+    """Argumentos para agrupar pestañas.
+
+    Attributes:
+        title: Nombre del grupo, corto.
+        tab_ids: Pestañas que van en el grupo, como las dan `read_page` y `list_tabs`.
+    """
+
+    title: Annotated[str, StringConstraints(max_length=40)]
+    tab_ids: list[int]
+
+
 class BrowserAction(BaseModel):
     """Una acción que la extensión ejecuta en el navegador.
 
@@ -1463,6 +1489,8 @@ class BrowserAction(BaseModel):
         text: Texto, al escribir.
         submit: Si se envía el formulario después de escribir.
         direction: Hacia dónde desplazar la página.
+        title: Nombre del grupo de pestañas.
+        tab_ids: Pestañas que se agrupan.
     """
 
     name: BrowserActionName
@@ -1472,6 +1500,8 @@ class BrowserAction(BaseModel):
     text: Annotated[str, StringConstraints(max_length=2000)] | None = None
     submit: bool = False
     direction: Literal["up", "down"] | None = None
+    title: Annotated[str, StringConstraints(max_length=40)] | None = None
+    tab_ids: list[int] | None = None
 
 
 class BrowserActionEvent(BaseModel):
